@@ -211,12 +211,12 @@ app.get('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
 }));
 
 const CENTER_CONFIG = {
-  'kwality house, kemps corner': { hostId: process.env.MOMENCE_MUMBAI_HOST_ID, token: process.env.MOMENCE_MUMBAI_TOKEN, sourceId: process.env.MOMENCE_MUMBAI_SOURCE_ID, city: 'mumbai' },
-  'supreme hq, bandra': { hostId: process.env.MOMENCE_MUMBAI_HOST_ID, token: process.env.MOMENCE_MUMBAI_TOKEN, sourceId: process.env.MOMENCE_MUMBAI_SOURCE_ID, city: 'mumbai' },
-  'courtside, mumbai': { hostId: process.env.MOMENCE_MUMBAI_HOST_ID, token: process.env.MOMENCE_MUMBAI_TOKEN, sourceId: process.env.MOMENCE_MUMBAI_SOURCE_ID, city: 'mumbai' },
-  'kenkere house, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
-  'the studio by copper & cloves, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
-  'sadashivnagar, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
+  'kwality house, kemps corner': { hostId: process.env.MOMENCE_MUMBAI_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_MUMBAI || process.env.MOMENCE_MUMBAI_TOKEN, sourceId: process.env.MOMENCE_MUMBAI_SOURCE_ID, city: 'mumbai' },
+  'supreme hq, bandra': { hostId: process.env.MOMENCE_MUMBAI_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_MUMBAI || process.env.MOMENCE_MUMBAI_TOKEN, sourceId: process.env.MOMENCE_MUMBAI_SOURCE_ID, city: 'mumbai' },
+  'courtside, mumbai': { hostId: process.env.MOMENCE_MUMBAI_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_MUMBAI || process.env.MOMENCE_MUMBAI_TOKEN, sourceId: process.env.MOMENCE_MUMBAI_SOURCE_ID, city: 'mumbai' },
+  'kenkere house, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_BENGALURU || process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
+  'the studio by copper & cloves, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_BENGALURU || process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
+  'sadashivnagar, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_BENGALURU || process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
 };
 const FALLBACK_CENTER = 'Kwality House, Kemps Corner';
 function formatPhone(phone) {
