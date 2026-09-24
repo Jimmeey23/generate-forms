@@ -11,9 +11,9 @@ import { Switch } from '@project/components/ui/switch';
 import {
   ArrowLeft, Share2, Copy, Check, ExternalLink, Pencil, Trash2,
   Plus, GripVertical, Settings2, Image as ImageIcon, Save, Layout, Hash, Type,
-  Palette, SlidersHorizontal,
+  Palette, SlidersHorizontal, Sheet,
 } from 'lucide-react';
-import { getForm, updateForm, GetFormOutputType } from '@/lib/api';
+import { createFormSheet, getForm, updateForm, GetFormOutputType } from '@/lib/api';
 import { toast } from 'sonner';
 import { HERO_IMAGES } from '@/lib/constants';
 import FormRenderer from '@/components/FormRenderer';
@@ -53,6 +53,7 @@ export default function FormPreview() {
   const [form, setForm] = useState<FormData | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [creatingSheet, setCreatingSheet] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editingField, setEditingField] = useState<Field | null>(null);
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
@@ -160,6 +161,21 @@ export default function FormPreview() {
     toast.success('Form saved!');
   };
 
+  const openSheet = async () => {
+    if (!form) return;
+    if (form.sheetUrl) { window.open(form.sheetUrl, '_blank'); return; }
+    setCreatingSheet(true);
+    try {
+      const { sheetUrl } = await createFormSheet({ formId: form.id });
+      setForm({ ...form, sheetUrl });
+      window.open(sheetUrl, '_blank');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not create the Google Sheet.');
+    } finally {
+      setCreatingSheet(false);
+    }
+  };
+
   const copyLink = () => {
     if (!form) return;
     navigator.clipboard.writeText(shareUrl);
@@ -226,6 +242,9 @@ export default function FormPreview() {
             <Badge variant={form.status === 'Published' ? 'default' : 'secondary'}>{form.status}</Badge>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={openSheet} className="gap-1.5" disabled={creatingSheet}>
+              <Sheet className="w-3.5 h-3.5" />{form.sheetUrl ? 'Responses Sheet' : creatingSheet ? 'Creating...' : 'Create Sheet'}
+            </Button>
             <Button variant={editMode ? 'default' : 'outline'} size="sm" onClick={() => editMode ? handleSave() : setEditMode(true)} className="gap-1.5" disabled={saving}>
               {editMode ? <><Save className="w-3.5 h-3.5" />{saving ? 'Saving...' : 'Save Changes'}</> : <><Pencil className="w-3.5 h-3.5" /> Edit</>}
             </Button>

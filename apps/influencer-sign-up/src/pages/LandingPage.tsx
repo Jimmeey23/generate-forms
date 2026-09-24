@@ -127,7 +127,9 @@ export default function LandingPage() {
         return;
       }
       const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId, sessionStudio: sessionId ? sessionStudio : '', classFormats: effectiveFormats, eventDate, eventTime, eventVenue: eventVenue.trim() });
-      toast.success('Form created!');
+      toast.success('Form created!', form.sheetUrl
+        ? { description: 'Submissions will be saved to a public Google Sheet.', action: { label: 'Open Sheet', onClick: () => window.open(form.sheetUrl, '_blank') }, duration: 10000 }
+        : undefined);
       navigate(`/form/${form.id}/preview`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to generate form. Please try again.');

@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
 import { createPaidCheckout, fulfillCheckout, handleStripeWebhook, listSessions, selectClassAndContinue, signupAdult, signupKid } from './momence.mjs';
+import { appendSubmissionRow, createFormSheet, sheetsConfigured } from './sheets.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
@@ -153,7 +154,24 @@ function publicForm(record, req) {
     signupType: data.signupType || 'free', targetStudio: data.targetStudio || '', sessionId: data.sessionId || '', classFormat: data.classFormat || '',
     targetStudios: data.targetStudios || (data.targetStudio ? [data.targetStudio] : []), sessionStudio: data.sessionStudio || data.targetStudio || '', classFormats: data.classFormats || (data.classFormat ? [data.classFormat] : []),
     eventDate: data.eventDate || '', eventTime: data.eventTime || '', eventVenue: data.eventVenue || '',
+    sheetUrl: data.sheetUrl || '',
   };
+}
+// One Google Sheet per form, created on demand; concurrent first submissions share one creation.
+const pendingSheets = new Map();
+function ensureFormSheet(form) {
+  const formData = form.form_data || {};
+  if (formData.sheetId || !sheetsConfigured()) return Promise.resolve(formData);
+  if (!pendingSheets.has(form.id)) {
+    pendingSheets.set(form.id, (async () => {
+      const sheet = await createFormSheet(form.title, formData.fields);
+      const next = { ...formData, ...sheet };
+      const { error } = await supabase.from('forms').update({ form_data: next }).eq('id', form.id);
+      if (error) throw error;
+      return next;
+    })().finally(() => pendingSheets.delete(form.id)));
+  }
+  return pendingSheets.get(form.id);
 }
 
 app.get('/api/health', asyncRoute(async (_req, res) => {
@@ -207,6 +225,8 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const slug = await createUniqueSlug(eventName || influencerName || campaignName);
   const { data, error } = await supabase.from('forms').insert({ title, description, slug, form_data: formData, theme_color: 'midnight', status: 'Draft', creator_email: req.body.creatorEmail || '' }).select().single();
   if (error) throw error;
+  // A sheet failure never blocks form creation; the sheet is retried on the first submission.
+  try { data.form_data = await ensureFormSheet(data); } catch (sheetError) { console.error('Form created, but Google Sheet creation failed:', sheetError?.message || sheetError); }
   res.status(201).json({ form: publicForm(data, req) });
 }));
 app.get('/api/forms', asyncRoute(async (req, res) => {
@@ -237,6 +257,13 @@ app.patch('/api/forms/:id', asyncRoute(async (req, res) => {
   const { error } = await supabase.from('forms').update(update).eq('id', req.params.id);
   if (error) throw error;
   res.json({ success: true });
+}));
+app.post('/api/forms/:id/sheet', asyncRoute(async (req, res) => {
+  if (!sheetsConfigured()) return res.status(503).json({ error: 'Google Sheets is not configured on the server.' });
+  const { data: form, error } = await supabase.from('forms').select('*').eq('id', req.params.id).single();
+  if (error) throw error;
+  const formData = await ensureFormSheet(form);
+  res.json({ sheetUrl: formData.sheetUrl });
 }));
 app.delete('/api/forms/:id', asyncRoute(async (req, res) => {
   const { error } = await supabase.from('forms').delete().eq('id', req.params.id);
@@ -338,10 +365,27 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   }
   // The lead is recorded first so the studio can follow up even if later Momence profile,
   // waiver, membership, or booking operations need manual recovery.
-  const signup = operationalForm.signupType === 'kids' ? await signupKid(responses, operationalForm) : await signupAdult(responses, operationalForm);
+  let signup = null;
   let checkoutUrl = null;
-  if (signup.paymentRequired) checkoutUrl = await createPaidCheckout({ memberId: signup.memberId, form: operationalForm, origin: (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '') });
-  res.status(201).json({ success: true, submissionId: submission.id, webhookStatus, signup, checkoutUrl });
+  let signupError = null;
+  try {
+    signup = operationalForm.signupType === 'kids' ? await signupKid(responses, operationalForm) : await signupAdult(responses, operationalForm);
+    if (signup.paymentRequired) checkoutUrl = await createPaidCheckout({ memberId: signup.memberId, form: operationalForm, origin: (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '') });
+  } catch (error) {
+    signupError = error;
+    console.error(`Momence signup failed for submission ${submission.id}:`, error?.message || error);
+  }
+  try {
+    const sheetData = await ensureFormSheet(form);
+    if (sheetData.sheetId) await appendSubmissionRow(sheetData, { responses, meta: {
+      _submittedAt: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }), _submissionId: submission.id, _momenceLead: webhookStatus,
+      _momenceSignup: signupError ? `ERROR: ${String(signupError?.message || signupError).slice(0, 300)}` : (signup?.booked ? 'Booked' : checkoutUrl ? 'Awaiting payment' : 'Created'),
+      _utmSource: utmSource, _utmCampaign: utmCampaign, _utmChannel: utmChannel, _utmMedium: attribution.utmMedium, _referrer: attribution.referrer,
+    } });
+  } catch (sheetError) { console.error(`Submission ${submission.id} saved, but Google Sheet append failed:`, sheetError?.message || sheetError); }
+  // Paid signups cannot continue to checkout without a Momence member; free and kids signups go through regardless.
+  if (signupError && operationalForm.signupType === 'paid') throw signupError;
+  res.status(201).json({ success: true, submissionId: submission.id, webhookStatus, signup, checkoutUrl, signupStatus: signupError ? 'MOMENCE_FAILED' : 'OK' });
 }));
 
 app.get('/api/payments/confirm', asyncRoute(async (req, res) => {

@@ -7,7 +7,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@project/components/ui/alert-dialog';
-import { Plus, Eye, Share2, Trash2, BarChart3, ArrowLeft, Copy, Check, Sparkles } from 'lucide-react';
+import { Plus, Eye, Share2, Trash2, BarChart3, ArrowLeft, Copy, Check, Sparkles, Sheet } from 'lucide-react';
 import { getForms, deleteForm, updateForm, GetFormsOutputType } from '@/lib/api';
 import { toast } from 'sonner';
 import { getTheme } from '@/lib/colors';
@@ -141,6 +141,7 @@ function FormCard({
         <div className="flex items-center gap-4 text-xs text-muted-foreground mb-4">
           <span className="flex items-center gap-1"><BarChart3 className="w-3.5 h-3.5" />{form.submissionCount} responses</span>
           {form.createdAt && <span>{format(new Date(form.createdAt), 'MMM d, yyyy')}</span>}
+          {form.sheetUrl && <a href={form.sheetUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:text-foreground"><Sheet className="w-3.5 h-3.5" />Sheet</a>}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={onView} className="gap-1.5 flex-1 border-border/50 hover:border-purple-500/30">

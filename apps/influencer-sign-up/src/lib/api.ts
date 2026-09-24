@@ -11,6 +11,7 @@ export type FormRecord = {
   accentColor: string; heroScale: number;
   signupType: 'kids' | 'free' | 'paid'; targetStudio: string; sessionId: string; classFormat: string;
   targetStudios: string[]; classFormats: string[]; sessionStudio: string; eventDate: string; eventTime: string; eventVenue: string;
+  sheetUrl: string;
 };
 export type SubmissionRecord = { id: string; responses: Record<string, any>; submitterEmail: string; submittedAt: string };
 export type GetFormOutputType = { form: FormRecord | null };
@@ -34,10 +35,11 @@ export const updateForm = (input: { id: string; [key: string]: any }) => {
   return request<{ success: boolean }>(`/api/forms/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) });
 };
 export const deleteForm = (input: { id: string }) => request<{ success: boolean }>(`/api/forms/${encodeURIComponent(input.id)}`, { method: 'DELETE' });
+export const createFormSheet = (input: { formId: string }) => request<{ sheetUrl: string }>(`/api/forms/${encodeURIComponent(input.formId)}/sheet`, { method: 'POST' });
 export const getSubmissions = (input: { formId: string }) => request<GetSubmissionsOutputType>(`/api/forms/${encodeURIComponent(input.formId)}/submissions`);
 export const submitForm = (input: { formId: string; responses: Record<string, any>; utmSource?: string; utmChannel?: string; utmCampaign?: string; attribution?: Attribution }) => {
   const { formId, ...body } = input;
-  return request<{ success: boolean; submissionId: string; webhookStatus: string; checkoutUrl?: string | null; signup?: { memberId: number; booked?: boolean } }>(`/api/forms/${encodeURIComponent(formId)}/submissions`, { method: 'POST', body: JSON.stringify(body) });
+  return request<{ success: boolean; submissionId: string; webhookStatus: string; checkoutUrl?: string | null; signup?: { memberId: number; booked?: boolean } | null; signupStatus?: 'OK' | 'MOMENCE_FAILED' }>(`/api/forms/${encodeURIComponent(formId)}/submissions`, { method: 'POST', body: JSON.stringify(body) });
 };
 export const confirmPayment = (checkoutSessionId: string) => request<{ success: boolean; booking: { memberId: number; sessionId: number } }>(`/api/payments/confirm?checkout_session_id=${encodeURIComponent(checkoutSessionId)}`);
 export type MomenceSession = { id: number; name: string; startsAt: string; endsAt: string; durationInMinutes: number; capacity: number | null; bookingCount: number; spotsLeft: number | null; teacherName: string; locationName: string };
