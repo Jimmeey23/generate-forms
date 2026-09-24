@@ -5,6 +5,8 @@ import { getForm, submitForm, GetFormOutputType } from '@/lib/api';
 import { toast } from 'sonner';
 import FormRenderer from '@/components/FormRenderer';
 import { setFormMetaTags, resetMetaTags } from '@/lib/setMetaTags';
+import { captureAttribution, startFunnel, trackFunnelEvent } from '@/lib/tracking';
+import { cityFor, saveSignupDetails } from '@/lib/signupDetails';
 
 type FormData = NonNullable<GetFormOutputType['form']>;
 
@@ -26,6 +28,7 @@ export default function FormFill() {
       .then(({ form }) => {
         setForm(form as FormData);
         if (form) {
+          captureAttribution(cityFor(form.targetStudio) === 'bengaluru');
           setFormMetaTags({
             title: form.metadataTitle || form.title || 'Physique 57 Signature Experience',
             description: form.metadataDescription || form.description || '',
@@ -45,6 +48,13 @@ export default function FormFill() {
   const handleSubmit = async (responses: Record<string, any>) => {
     if (!form) return;
     setSubmitting(true);
+    const center = String(form.targetStudio || responses.center || '');
+    const classType = String(responses.classType || form.classFormat || '');
+    const { fbp: _fbp, fbc: _fbc, ...attribution } = captureAttribution(cityFor(center) === 'bengaluru');
+    startFunnel(
+      { email: responses.email, phone: responses.phone, firstName: responses.firstName, lastName: responses.lastName },
+      { form_id: form.id, form_title: form.title, center, class_type: classType, signup_type: form.signupType, utm_source: attribution.utmSource, utm_campaign: attribution.utmCampaign, ab_variant: attribution.abVariant },
+    );
     try {
       const result = await submitForm({
         formId: form.id,
@@ -52,22 +62,28 @@ export default function FormFill() {
         utmSource: form.utmSource || '',
         utmChannel: form.utmChannel || '',
         utmCampaign: form.utmCampaign || '',
+        attribution,
       });
+      // The server stores the lead and signs the waivers before replying, so these stages are confirmed here.
+      await trackFunnelEvent('lead');
+      await trackFunnelEvent('waiver');
+      if (result.signup?.memberId) await trackFunnelEvent('signup', { member_id: result.signup.memberId });
+      const booked = Boolean(result.signup?.booked);
+      if (booked) await trackFunnelEvent('classBooked', { session_id: form.sessionId });
+      saveSignupDetails({ firstName: String(responses.firstName || ''), center, classType, signupType: form.signupType, formTitle: form.title, childName: responses.childName, booked });
       if (result.checkoutUrl) {
         window.location.assign(result.checkoutUrl);
         return;
       }
       if (form.signupType === 'free' && !form.sessionId && result.signup?.memberId) {
-        const query = new URLSearchParams({ center: form.targetStudio || responses.center, classType: responses.classType || 'Barre' });
+        const query = new URLSearchParams({ center, classType: classType || 'Barre' });
+        if (form.classFormat) query.set('format', form.classFormat);
         navigate(`/classes/${result.signup.memberId}?${query}`);
         return;
       }
-      const center = (responses.center || '').toString().toLowerCase();
-      const city = center.includes('bengaluru') || center.includes('copper') || center.includes('kenkere')
-        ? 'bengaluru' : 'mumbai';
-      navigate('/success', { state: { city } });
-    } catch {
-      toast.error('Failed to submit. Please try again.');
+      navigate('/success');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to submit. Please try again.');
     } finally {
       setSubmitting(false);
     }

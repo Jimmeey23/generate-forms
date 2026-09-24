@@ -59,6 +59,8 @@ const deps = new Set([
 // https://vite.dev/config/
 export default defineConfig(() => ({
   build: { target: 'esnext', sourcemap: false, reportCompressedSize: false },
+  // Share the repo-root .env with the server; Vite only exposes VITE_-prefixed keys to the browser.
+  envDir: path.resolve(__dirname, '../..'),
   server: {
     host: '::',
     port: 8080,

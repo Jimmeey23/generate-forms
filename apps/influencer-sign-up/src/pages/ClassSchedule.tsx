@@ -6,13 +6,17 @@ import { Input } from '@project/components/ui/input';
 import { Label } from '@project/components/ui/label';
 import { BRAND_LOGO } from '@/lib/constants';
 import { getMomenceSessions, selectMomenceClass, type MomenceSession } from '@/lib/api';
+import { trackFunnelEvent } from '@/lib/tracking';
+import { updateSignupDetails } from '@/lib/signupDetails';
 
 const EMPTY_FIELDS = { fitnessGoal: '', emergencyContactInfo: '', pregnancyStatus: '', medicalHistory: '', postNatalStatus: '', fnf: '', gender: '', euShoeSize: '', howDidHear: '' };
 
 export default function ClassSchedule() {
   const { memberId = '' } = useParams(); const [search] = useSearchParams(); const navigate = useNavigate();
   const center = search.get('center') || ''; const initialClassType = search.get('classType') || 'Barre';
-  const classOptions = /kenkere|copper|plash|bengaluru/i.test(center) ? ['Barre'] : ['Barre', 'Strength Lab', 'powerCycle'];
+  // Forms built for one class format only offer that format's classes.
+  const lockedFormat = search.get('format') || '';
+  const classOptions = lockedFormat ? [lockedFormat] : /kenkere|copper|plash|bengaluru/i.test(center) ? ['Barre'] : ['Barre', 'Strength Lab', 'powerCycle'];
   const [classType, setClassType] = useState(classOptions.includes(initialClassType) ? initialClassType : classOptions[0]);
   const [sessions, setSessions] = useState<MomenceSession[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
   const [selected, setSelected] = useState<MomenceSession | null>(null); const [fields, setFields] = useState(EMPTY_FIELDS); const [booking, setBooking] = useState(false); const [fieldError, setFieldError] = useState('');
@@ -23,14 +27,17 @@ export default function ClassSchedule() {
     if (!selected) return; setBooking(true); setFieldError('');
     try {
       const result = await selectMomenceClass({ memberId: Number(memberId), sessionId: selected.id, center, classType, customerFields: fields });
+      updateSignupDetails({ classType, session: { name: selected.name, startsAt: selected.startsAt, teacherName: selected.teacherName } });
       if (result.checkoutUrl) { window.location.assign(result.checkoutUrl); return; }
-      navigate('/success', { state: { city: /bengaluru|copper|kenkere|sadashivnagar/i.test(center) ? 'bengaluru' : 'mumbai', booked: true, session: selected, center } });
+      await trackFunnelEvent('classBooked', { session_id: selected.id, class_type: classType });
+      updateSignupDetails({ booked: true });
+      navigate('/success');
     } catch (e) { setFieldError(e instanceof Error ? e.message : 'Could not book this class.'); } finally { setBooking(false); }
   };
   return <div className="min-h-screen bg-background text-foreground">
     <header className="sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur"><div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-4"><img src={BRAND_LOGO} alt="Physique 57" className="h-10" /><span className="text-[11px] uppercase tracking-[.18em] text-muted-foreground">Member #{memberId}</span></div></header>
     <main className="mx-auto max-w-5xl px-5 py-10">
-      <section className="mb-9 rounded-3xl border border-border bg-card p-7"><p className="text-xs font-bold uppercase tracking-[.22em] text-primary">{center}</p><h1 className="mt-2 text-4xl font-bold" style={{ fontFamily: "'Playfair Display', serif" }}>Choose your class</h1><p className="mt-3 text-muted-foreground">Choose an available class below. Any applicable introductory payment is shown after you select your class and complete your profile.</p><div className="mt-6 flex flex-wrap gap-2">{classOptions.map((option) => <button key={option} type="button" onClick={() => { setLoading(true); setError(''); setClassType(option); }} className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${classType === option ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background text-muted-foreground hover:text-foreground'}`}>{option}</button>)}</div></section>
+      <section className="mb-9 rounded-3xl border border-border bg-card p-7"><p className="text-xs font-bold uppercase tracking-[.22em] text-primary">{center}</p><h1 className="mt-2 text-4xl font-bold" style={{ fontFamily: "'Playfair Display', serif" }}>Choose your class</h1><p className="mt-3 text-muted-foreground">Choose an available class below. Any applicable introductory payment is shown after you select your class and complete your profile.</p>{classOptions.length > 1 && <div className="mt-6 flex flex-wrap gap-2">{classOptions.map((option) => <button key={option} type="button" onClick={() => { setLoading(true); setError(''); setClassType(option); }} className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${classType === option ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background text-muted-foreground hover:text-foreground'}`}>{option}</button>)}</div>}</section>
       {loading && <div className="flex justify-center py-24"><Loader2 className="h-9 w-9 animate-spin text-primary" /></div>}
       {error && <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-5 text-red-300">{error}</div>}
       {!loading && !error && sessions.length === 0 && <div className="rounded-2xl border border-dashed border-border p-12 text-center text-muted-foreground">No upcoming {classType} classes are currently available at this studio.</div>}

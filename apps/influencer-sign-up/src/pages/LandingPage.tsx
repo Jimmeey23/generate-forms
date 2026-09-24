@@ -1,24 +1,63 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@project/components/ui/button';
 import { Input } from '@project/components/ui/input';
 import { Label } from '@project/components/ui/label';
 import { Textarea } from '@project/components/ui/textarea';
-import { Loader2, ArrowRight, Sparkles, Zap, Share2, BarChart3, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Loader2, ArrowRight, Sparkles, Zap, Share2, BarChart3, ChevronLeft, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle } from 'lucide-react';
 import { generateForm } from '@/lib/api';
 import { toast } from 'sonner';
 import { BRAND_LOGO, HERO_IMAGES } from '@/lib/constants';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, MotionConfig, type Variants } from 'framer-motion';
+
+type SignupType = 'kids' | 'free' | 'paid';
+
+const SIGNUP_FLOWS: { value: SignupType; label: string; desc: string; icon: React.ElementType }[] = [
+  { value: 'free', label: 'Free signup', desc: 'Complimentary first class', icon: Gift },
+  { value: 'paid', label: 'Paid signup', desc: 'Checkout, then auto-book', icon: CreditCard },
+  { value: 'kids', label: 'Kids / Juniors', desc: 'Parent-signed waiver', icon: Baby },
+];
+
+const STUDIOS_BY_CITY: { city: string; studios: string[] }[] = [
+  { city: 'Mumbai', studios: ['Kwality House, Kemps Corner', 'Supreme HQ, Bandra'] },
+  { city: 'Bengaluru', studios: ['Kenkere House, Bengaluru', 'The Studio by Copper & Cloves, Bengaluru', 'Plash Pilates, Bengaluru'] },
+];
+
+type ClassFormat = '' | 'Barre' | 'Strength Lab' | 'powerCycle';
+
+// Indexes into HERO_IMAGES that picture each format; the server picks form heroes from the same sets.
+const CLASS_FORMATS: { value: Exclude<ClassFormat, ''>; desc: string; images: number[] }[] = [
+  { value: 'Barre', desc: 'Signature interval overload', images: [1, 2, 8] },
+  { value: 'Strength Lab', desc: 'Targeted weight training', images: [3, 4, 5, 6] },
+  { value: 'powerCycle', desc: 'High-intensity rhythm ride', images: [0, 7] },
+];
+const formatsForStudio = (studio: string) => (/bengaluru/i.test(studio) ? ['Barre'] : CLASS_FORMATS.map((f) => f.value));
+
+const EASE = [0.16, 1, 0.3, 1] as const;
+const stagger: Variants = { hidden: {}, show: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } } };
+const rise: Variants = { hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: EASE } } };
+
+const fieldClass = 'h-11 bg-muted/30 border-border/50 focus:border-purple-500/40 transition-colors text-sm';
+const labelClass = 'text-[11px] uppercase tracking-wider mb-2 block font-bold text-muted-foreground';
 
 export default function LandingPage() {
   const [influencer, setInfluencer] = useState('');
   const [eventTitle, setEventTitle] = useState('');
   const [eventDetails, setEventDetails] = useState('');
-  const [signupType, setSignupType] = useState<'kids' | 'free' | 'paid'>('free');
+  const [signupType, setSignupType] = useState<SignupType>('free');
   const [targetStudio, setTargetStudio] = useState('Kwality House, Kemps Corner');
   const [sessionId, setSessionId] = useState('');
+  const [classFormat, setClassFormat] = useState<ClassFormat>('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  const availableFormats = formatsForStudio(targetStudio);
+  const effectiveFormat: ClassFormat = signupType === 'kids' || !availableFormats.includes(classFormat) ? '' : classFormat;
+  const carouselImages = useMemo(() => effectiveFormat ? CLASS_FORMATS.find((f) => f.value === effectiveFormat)!.images.map((index) => HERO_IMAGES[index]) : HERO_IMAGES, [effectiveFormat]);
+
+  const city = STUDIOS_BY_CITY.find((group) => group.studios.includes(targetStudio))?.city || 'Mumbai';
+  const flow = SIGNUP_FLOWS.find((option) => option.value === signupType)!;
+  const canGenerate = Boolean(influencer.trim() || eventTitle.trim()) && (signupType !== 'paid' || /^\d+$/.test(sessionId.trim()));
 
   const handleGenerate = async () => {
     if (!influencer.trim() && !eventTitle.trim()) {
@@ -32,7 +71,7 @@ export default function LandingPage() {
         toast.error('Paid signups require a valid Momence session ID');
         return;
       }
-      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudio, sessionId: sessionId.trim() });
+      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudio, sessionId: sessionId.trim(), classFormat: effectiveFormat });
       toast.success('Form created!');
       navigate(`/form/${form.id}/preview`);
     } catch (error) {
@@ -43,176 +82,220 @@ export default function LandingPage() {
   };
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className="min-h-screen bg-background relative overflow-hidden">
-      {/* Subtle ambient glow */}
+      {/* Drifting ambient glow */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-60 right-[-10%] w-[700px] h-[700px] rounded-full opacity-[0.06]"
-          style={{ background: 'radial-gradient(circle, #a855f7 0%, transparent 70%)' }} />
-        <div className="absolute bottom-[-15%] left-[-10%] w-[600px] h-[600px] rounded-full opacity-[0.05]"
-          style={{ background: 'radial-gradient(circle, #06b6d4 0%, transparent 70%)' }} />
+        <motion.div className="absolute -top-60 right-[-10%] w-[700px] h-[700px] rounded-full opacity-[0.07]"
+          style={{ background: 'radial-gradient(circle, #a855f7 0%, transparent 70%)' }}
+          animate={{ x: [0, -60, 0], y: [0, 40, 0] }} transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut' }} />
+        <motion.div className="absolute bottom-[-15%] left-[-10%] w-[600px] h-[600px] rounded-full opacity-[0.06]"
+          style={{ background: 'radial-gradient(circle, #06b6d4 0%, transparent 70%)' }}
+          animate={{ x: [0, 70, 0], y: [0, -30, 0] }} transition={{ duration: 22, repeat: Infinity, ease: 'easeInOut' }} />
+        <motion.div className="absolute top-[40%] left-[45%] w-[420px] h-[420px] rounded-full opacity-[0.04]"
+          style={{ background: 'radial-gradient(circle, #f97316 0%, transparent 70%)' }}
+          animate={{ x: [0, -40, 30, 0], y: [0, 30, -20, 0] }} transition={{ duration: 26, repeat: Infinity, ease: 'easeInOut' }} />
       </div>
 
       {/* Nav */}
       <nav className="relative z-50 border-b border-border/30 bg-background/80 backdrop-blur-md">
-        <div className="container mx-auto h-16 flex items-center justify-between px-4 py-10">
+        <div className="container mx-auto h-16 flex items-center justify-between px-4">
           <motion.div className="flex items-center gap-3" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}>
-            <img src={BRAND_LOGO} alt="Physique 57" className="h-8 brightness-0 invert" />
+            <img src={BRAND_LOGO} alt="Physique 57" className="h-7 brightness-0 invert" />
             <div className="h-5 w-px bg-border/50" />
             <span className="text-xs font-medium tracking-wider uppercase text-muted-foreground">Lead Capture</span>
           </motion.div>
-          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 }}>
-            <Button variant="outline" onClick={() => navigate('/dashboard')} className="text-sm gap-2 border-border/50 hover:border-primary/40 font-semibold text-[#03c4ff] shadow-none">
-              <BarChart3 className="w-3.5 h-3.5" /> My Forms
-            </Button>
+          <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1, duration: 0.6, ease: EASE }}>
+          <Button variant="outline" onClick={() => navigate('/dashboard')} className="text-sm gap-2 border-border/50 hover:border-primary/40 font-semibold text-[#03c4ff] shadow-none">
+            <BarChart3 className="w-3.5 h-3.5" /> My Forms
+          </Button>
           </motion.div>
         </div>
       </nav>
 
-      {/* Hero */}
-      <section className="relative z-10 flex-1">
-        <div className="container mx-auto px-4 md:px-6 lg:px-8 py-10 md:py-16 lg:py-20">
-          <div className="w-full max-w-7xl mx-auto flex flex-col lg:flex-row items-center gap-10 lg:gap-16">
-            {/* Left — copy + carousel */}
-            <div className="flex-1 text-center lg:text-left min-w-0">
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-6 text-xs font-medium tracking-wider uppercase"
+      <main className="relative z-10 container mx-auto px-4 md:px-6 py-10 md:py-14">
+        <div className="max-w-7xl mx-auto">
+          {/* Header */}
+          <motion.header initial="hidden" animate="show" variants={stagger}
+            className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 mb-8 md:mb-10">
+            <div>
+              <motion.div variants={rise} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-4 text-[11px] font-medium tracking-wider uppercase"
                 style={{ background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.15)', color: 'rgba(168,85,247,0.9)' }}>
-                <Sparkles className="w-3 h-3" /> Instant AI Generation
+                <motion.span animate={{ rotate: [0, 18, -8, 0] }} transition={{ duration: 2.4, repeat: Infinity, repeatDelay: 2 }}><Sparkles className="w-3 h-3" /></motion.span> Instant AI Generation
               </motion.div>
-
-              <motion.h1 initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.7 }}
-                className="text-4xl md:text-5xl lg:text-[3.5rem] font-bold tracking-tight leading-[1.1] mb-5"
-                style={{ fontFamily: "'Playfair Display', serif" }}>
-                Create branded<br />
-                <span className="bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(135deg, #a855f7, #06b6d4)' }}>sign-up forms</span><br />
-                in seconds
+              <motion.h1 variants={stagger} className="text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight leading-[1.1]" style={{ fontFamily: "'Playfair Display', serif" }}>
+                {['Create', 'branded'].map((word) => <motion.span key={word} variants={rise} className="inline-block mr-[0.25em]">{word}</motion.span>)}
+                {['sign-up', 'forms'].map((word) => (
+                  <motion.span key={word} variants={rise} className="inline-block mr-[0.25em] bg-clip-text text-transparent bg-[length:200%_auto]"
+                    style={{ backgroundImage: 'linear-gradient(135deg, #a855f7, #06b6d4, #a855f7)' }}
+                    animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ backgroundPosition: { duration: 6, repeat: Infinity, ease: 'linear' } }}>
+                    {word}
+                  </motion.span>
+                ))}
               </motion.h1>
-
-              <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.25 }}
-                className="text-muted-foreground text-base md:text-lg max-w-lg mx-auto lg:mx-0 leading-relaxed mb-10">
-                Enter influencer or event details and get a fully branded Physique 57 form with Momence integration & UTM tracking.
-              </motion.p>
-
-              {/* Image carousel */}
-              <ImageCarousel />
             </div>
+            <motion.p variants={rise} className="text-muted-foreground text-sm md:text-base max-w-md leading-relaxed">
+              Enter influencer or event details and get a fully branded Physique 57 form with Momence integration & UTM tracking.
+            </motion.p>
+          </motion.header>
 
-            {/* Right — form card */}
-            <motion.div initial={{ opacity: 0, y: 24, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ delay: 0.2, duration: 0.6 }}
-              className="w-full lg:w-[460px] shrink-0">
-              <div className="relative">
-                {/* Glow */}
-                <div className="absolute -inset-2 rounded-3xl opacity-20 blur-3xl"
-                  style={{ background: 'linear-gradient(135deg, rgba(168,85,247,0.2), rgba(6,182,212,0.2))' }} />
-                <div className="relative bg-card rounded-2xl shadow-2xl overflow-hidden"
-                  style={{ border: '1px solid rgba(168,85,247,0.12)' }}>
-                  {/* Accent bar */}
-                  <div className="h-1" style={{ background: 'linear-gradient(90deg, #a855f7, #06b6d4, #f97316)' }} />
-                  <div className="p-7 md:p-9">
-                    <div className="flex items-center gap-2 mb-7">
-                      <div className="w-2 h-2 rounded-full animate-pulse"
-                        style={{ background: '#22c55e', boxShadow: '0 0 8px rgba(34,197,94,0.5)' }} />
-                      <span className="text-xs text-muted-foreground font-medium tracking-wide uppercase">New Form</span>
+          {/* Bento grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            {/* Form builder */}
+            <motion.section initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.6, ease: EASE }}
+              className="lg:col-span-8 rounded-2xl bg-card/70 border border-border/40 overflow-hidden">
+              <motion.div className="h-1 bg-[length:200%_100%]" style={{ backgroundImage: 'linear-gradient(90deg, #a855f7, #06b6d4, #f97316, #a855f7)' }}
+                animate={{ backgroundPosition: ['0% 0%', '200% 0%'] }} transition={{ duration: 8, repeat: Infinity, ease: 'linear' }} />
+              <motion.div className="p-5 md:p-7 space-y-8" initial="hidden" animate="show" variants={stagger}>
+                <FormSection step="01" title="Campaign" hint="Who is this form for?">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label className={labelClass}>Influencer / Partner Name *</Label>
+                      <Input value={influencer} onChange={(e) => setInfluencer(e.target.value)} placeholder="e.g. Maia Sethna, Shilpa Shetty" className={fieldClass} />
                     </div>
-
-                    <div className="space-y-6">
-                      <div>
-                        <Label className="text-xs uppercase tracking-wider mb-2 block font-extrabold text-primary">Influencer / Partner Name *</Label>
-                        <Input value={influencer} onChange={(e) => setInfluencer(e.target.value)}
-                          placeholder="e.g. Maia Sethna, Shilpa Shetty"
-                          className="h-12 bg-muted/30 border-border/50 focus:border-purple-500/40 transition-colors text-xs" />
-                      </div>
-                      <div>
-                        <Label className="text-xs uppercase tracking-wider mb-2 block font-extrabold text-primary">Event Title</Label>
-                        <Input value={eventTitle} onChange={(e) => setEventTitle(e.target.value)}
-                          placeholder="e.g. Open House, Exclusive Barre Class"
-                          className="h-12 bg-muted/30 border-border/50 focus:border-cyan-500/40 transition-colors text-xs" />
-                      </div>
-                      <div>
-                        <Label className="text-xs uppercase tracking-wider mb-2 block font-extrabold text-primary">Event Details (optional)</Label>
-                        <Textarea value={eventDetails} onChange={(e) => setEventDetails(e.target.value)}
-                          placeholder="Venue, date, time, any special notes..."
-                          rows={4} className="resize-none bg-muted/30 border-border/50 focus:border-orange-500/40 transition-colors text-xs" />
-                      </div>
-                      <div>
-                        <Label className="text-xs uppercase tracking-wider mb-2 block font-extrabold text-primary">Signup flow *</Label>
-                        <select value={signupType} onChange={(e) => setSignupType(e.target.value as 'kids' | 'free' | 'paid')} className="h-12 w-full rounded-md bg-muted/30 border border-border/50 px-3 text-xs">
-                          <option value="kids">Kids / Juniors signup</option><option value="free">Regular free signup</option><option value="paid">Paid signup</option>
-                        </select>
-                      </div>
-                      <div>
-                        <Label className="text-xs uppercase tracking-wider mb-2 block font-extrabold text-primary">Studio *</Label>
-                        <select value={targetStudio} onChange={(e) => setTargetStudio(e.target.value)} className="h-12 w-full rounded-md bg-muted/30 border border-border/50 px-3 text-xs">
-                          {['Kwality House, Kemps Corner','Supreme HQ, Bandra','Kenkere House, Bengaluru','The Studio by Copper & Cloves, Bengaluru','Plash Pilates, Bengaluru'].map((studio) => <option key={studio}>{studio}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <Label className="text-xs uppercase tracking-wider mb-2 block font-extrabold text-primary">Momence Session ID {signupType === 'paid' ? '*' : '(optional)'}</Label>
-                        <Input inputMode="numeric" value={sessionId} onChange={(e) => setSessionId(e.target.value.replace(/\D/g, ''))} placeholder={signupType === 'paid' ? 'Required for payment and booking' : 'Auto-book after signup'} className="h-12 bg-muted/30 border-border/50 text-xs" />
-                        <p className="mt-1.5 text-[10px] text-muted-foreground">Free and paid forms auto-book this exact class after signup. Paid forms require it.</p>
-                      </div>
+                    <div>
+                      <Label className={labelClass}>Event Title</Label>
+                      <Input value={eventTitle} onChange={(e) => setEventTitle(e.target.value)} placeholder="e.g. Open House, Exclusive Barre Class" className={fieldClass} />
                     </div>
+                    <div className="md:col-span-2">
+                      <Label className={labelClass}>Event Details (optional)</Label>
+                      <Textarea value={eventDetails} onChange={(e) => setEventDetails(e.target.value)} placeholder="Venue, date, time, any special notes..."
+                        rows={3} className="resize-none bg-muted/30 border-border/50 focus:border-purple-500/40 transition-colors text-sm" />
+                    </div>
+                  </div>
+                </FormSection>
 
-                    <div className="pt-7">
-                      <Button onClick={handleGenerate}
-                        disabled={loading || (!influencer.trim() && !eventTitle.trim())}
-                        className="w-full h-14 gap-2 rounded-xl text-sm tracking-wider uppercase relative overflow-hidden font-extrabold text-[#ffffff] shadow-lg hover:shadow-xl transition-shadow"
-                        size="lg"
-                        style={{ background: 'linear-gradient(135deg, #a855f7, #7c3aed)', border: 'none' }}>
-                        <div className="relative z-10 flex items-center gap-2">
-                          {loading ? <><Loader2 className="w-4 h-4 animate-spin" />Generating...</> : <>Generate Form<ArrowRight className="w-4 h-4" /></>}
+                <FormSection step="02" title="Signup flow" hint="What happens after submit">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" role="radiogroup" aria-label="Signup flow">
+                    {SIGNUP_FLOWS.map((option) => (
+                      <OptionTile key={option.value} group="flow" selected={signupType === option.value} onSelect={() => setSignupType(option.value)}>
+                        <option.icon className="w-4 h-4 mb-3" style={{ color: signupType === option.value ? '#a855f7' : undefined }} />
+                        <span className="block text-sm font-semibold">{option.label}</span>
+                        <span className="block text-xs text-muted-foreground mt-0.5">{option.desc}</span>
+                      </OptionTile>
+                    ))}
+                  </div>
+                </FormSection>
+
+                <FormSection step="03" title="Studio" hint="Routes leads to the right Momence account">
+                  <div className="space-y-4">
+                    {STUDIOS_BY_CITY.map((group) => (
+                      <div key={group.city}>
+                        <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+                          <MapPin className="w-3 h-3" /> {group.city}
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" role="radiogroup" aria-label={`${group.city} studios`}>
+                          {group.studios.map((studio) => (
+                            <OptionTile key={studio} group="studio" selected={targetStudio === studio} onSelect={() => setTargetStudio(studio)}>
+                              <span className="block text-sm font-semibold leading-snug">{studio.replace(/, Bengaluru$/, '')}</span>
+                            </OptionTile>
+                          ))}
                         </div>
-                      </Button>
-                      <p className="text-center text-[10px] mt-4 tracking-wider uppercase text-foreground opacity-[0.35]">
-                        Powered by AI · Instant generation
-                      </p>
-                    </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </section>
+                </FormSection>
 
-      {/* Features */}
-      <section className="relative z-10 py-16 md:py-20">
-        <div className="container mx-auto px-4">
-          <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
-            className="text-center mb-12">
-            <span className="text-xs uppercase tracking-[0.3em] font-medium px-4 py-1.5 rounded-full inline-block mb-4"
-              style={{ color: 'rgba(6,182,212,0.8)', background: 'rgba(6,182,212,0.08)', border: '1px solid rgba(6,182,212,0.15)' }}>
-              How it works
-            </span>
-          </motion.div>
-          <div className="grid md:grid-cols-3 gap-5 max-w-4xl mx-auto">
-            {[
-              { icon: <Zap className="w-5 h-5" />, title: 'Instant Forms', desc: 'Enter influencer/event details — get a branded form with all required fields, hero images & layouts.', num: '01', accent: '#a855f7' },
-              { icon: <Share2 className="w-5 h-5" />, title: 'Momence Integration', desc: 'Every submission pushes leads to Momence with full UTM tracking for Mumbai & Bengaluru studios.', num: '02', accent: '#06b6d4' },
-              { icon: <BarChart3 className="w-5 h-5" />, title: 'Track Everything', desc: 'View every submission with full details — name, email, phone, center, class type & UTM data.', num: '03', accent: '#f97316' },
-            ].map((f, i) => (
-              <motion.div key={i} initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
-                transition={{ delay: i * 0.1 }}
-                className="group relative p-6 rounded-2xl bg-card/50 transition-all hover:bg-card overflow-hidden"
-                style={{ border: `1px solid rgba(${f.accent === '#a855f7' ? '168,85,247' : f.accent === '#06b6d4' ? '6,182,212' : '249,115,22'},0.15)` }}>
-                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                  style={{ background: `radial-gradient(circle at top right, ${f.accent}08 0%, transparent 60%)` }} />
-                <span className="absolute top-5 right-5 text-[40px] font-bold leading-none opacity-[0.06]"
-                  style={{ fontFamily: "'Playfair Display', serif" }}>{f.num}</span>
-                <div className="relative z-10">
-                  <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4 transition-colors"
-                    style={{ background: `${f.accent}15`, color: f.accent }}>
-                    {f.icon}
+                <FormSection step="04" title="Class format" hint={signupType === 'kids' ? 'Not used for Juniors forms' : 'Optional · shapes the form, images & class list'}>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" role="radiogroup" aria-label="Class format">
+                    <OptionTile group="format" selected={effectiveFormat === ''} onSelect={() => setClassFormat('')} disabled={signupType === 'kids'}>
+                      <Shuffle className="w-4 h-4 mb-3 text-muted-foreground" />
+                      <span className="block text-sm font-semibold">Any format</span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">Guest picks in the form</span>
+                    </OptionTile>
+                    {CLASS_FORMATS.map((option) => {
+                      const unavailable = signupType === 'kids' || !availableFormats.includes(option.value);
+                      return (
+                        <OptionTile key={option.value} group="format" selected={effectiveFormat === option.value} onSelect={() => setClassFormat(option.value)} disabled={unavailable} flush>
+                          <div className="relative h-16 overflow-hidden rounded-t-[11px]">
+                            <img src={HERO_IMAGES[option.images[0]]} alt="" className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-card via-card/40 to-transparent" />
+                          </div>
+                          <div className="px-4 pb-4 -mt-2 relative">
+                            <span className="block text-sm font-semibold">{option.value}</span>
+                            <span className="block text-xs text-muted-foreground mt-0.5">{unavailable && signupType !== 'kids' ? 'Not at this studio' : option.desc}</span>
+                          </div>
+                        </OptionTile>
+                      );
+                    })}
                   </div>
-                  <h3 className="font-semibold mb-1.5 text-sm">{f.title}</h3>
+                </FormSection>
+
+                <FormSection step="05" title="Class booking" hint={signupType === 'paid' ? 'Required for paid signups' : 'Optional auto-booking'}>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                    <div>
+                      <Label className={labelClass}>Momence Session ID {signupType === 'paid' ? '*' : '(optional)'}</Label>
+                      <Input inputMode="numeric" value={sessionId} onChange={(e) => setSessionId(e.target.value.replace(/\D/g, ''))}
+                        placeholder={signupType === 'paid' ? 'Required for payment and booking' : 'Auto-book after signup'} className={fieldClass} />
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed md:pt-7">
+                      Free and paid forms auto-book this exact class after signup. Paid forms require it.
+                    </p>
+                  </div>
+                </FormSection>
+              </motion.div>
+            </motion.section>
+
+            {/* Summary + preview */}
+            <motion.aside initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.6, ease: EASE }}
+              className="lg:col-span-4 space-y-5 lg:sticky lg:top-6 self-start">
+              <div className="rounded-2xl bg-card/70 border border-border/40 p-5 md:p-6">
+                <div className="flex items-center gap-2 mb-5">
+                  <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#22c55e', boxShadow: '0 0 8px rgba(34,197,94,0.5)' }} />
+                  <span className="text-xs text-muted-foreground font-medium tracking-wide uppercase">New Form</span>
+                </div>
+                <dl className="grid grid-cols-2 gap-3 mb-6">
+                  <SummaryItem label="Partner" value={influencer.trim() || '—'} span />
+                  <SummaryItem label="Event" value={eventTitle.trim() || '—'} span />
+                  <SummaryItem label="Flow" value={flow.label} />
+                  <SummaryItem label="City" value={city} />
+                  <SummaryItem label="Studio" value={targetStudio} span />
+                  <SummaryItem label="Format" value={effectiveFormat || 'Any'} />
+                  <SummaryItem label="Session" value={sessionId || (signupType === 'paid' ? 'Required' : 'None')} />
+                </dl>
+                <motion.div whileHover={canGenerate ? { scale: 1.02 } : undefined} whileTap={canGenerate ? { scale: 0.98 } : undefined}>
+                  <Button onClick={handleGenerate} disabled={loading || !canGenerate}
+                    className="relative w-full h-12 gap-2 rounded-xl text-sm tracking-wider uppercase font-extrabold text-[#ffffff] shadow-lg hover:shadow-xl transition-shadow overflow-hidden"
+                    size="lg" style={{ background: 'linear-gradient(135deg, #a855f7, #7c3aed)', border: 'none' }}>
+                    {canGenerate && !loading && (
+                      <motion.span aria-hidden className="absolute inset-y-0 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/25 to-transparent"
+                        initial={{ left: '-40%' }} animate={{ left: '140%' }} transition={{ duration: 1.6, repeat: Infinity, repeatDelay: 1.2, ease: 'easeInOut' }} />
+                    )}
+                    <span className="relative flex items-center gap-2">
+                      {loading ? <><Loader2 className="w-4 h-4 animate-spin" />Generating...</> : <>Generate Form<ArrowRight className="w-4 h-4" /></>}
+                    </span>
+                  </Button>
+                </motion.div>
+                <p className="text-center text-[10px] mt-3 tracking-wider uppercase text-foreground opacity-[0.35]">
+                  Powered by AI · Instant generation
+                </p>
+              </div>
+              <div className="rounded-2xl bg-card/70 border border-border/40 p-5">
+                <ImageCarousel images={carouselImages} label={effectiveFormat ? `${effectiveFormat} heroes` : 'Hero Images'} />
+              </div>
+            </motion.aside>
+
+            {/* Features */}
+            {[
+              { icon: <Zap className="w-5 h-5" />, title: 'Instant Forms', desc: 'Enter influencer/event details — get a branded form with all required fields, hero images & layouts.', accent: '#a855f7' },
+              { icon: <Share2 className="w-5 h-5" />, title: 'Momence Integration', desc: 'Every submission pushes leads to Momence with full UTM tracking for Mumbai & Bengaluru studios.', accent: '#06b6d4' },
+              { icon: <BarChart3 className="w-5 h-5" />, title: 'Track Everything', desc: 'View every submission with full details — name, email, phone, center, class type & UTM data.', accent: '#f97316' },
+            ].map((f, i) => (
+              <motion.div key={f.title} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 + i * 0.1, duration: 0.6, ease: EASE }}
+                whileHover={{ y: -4 }}
+                className="lg:col-span-4 flex gap-4 p-5 rounded-2xl bg-card/40 border border-border/30 hover:bg-card/70 hover:border-border/60 transition-colors">
+                <div className="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center" style={{ background: `${f.accent}15`, color: f.accent }}>
+                  {f.icon}
+                </div>
+                <div>
+                  <h3 className="font-semibold mb-1 text-sm">{f.title}</h3>
                   <p className="text-muted-foreground text-sm leading-relaxed">{f.desc}</p>
                 </div>
               </motion.div>
             ))}
           </div>
         </div>
-      </section>
+      </main>
 
       {/* Footer */}
       <footer className="relative z-10 py-6" style={{ borderTop: '1px solid rgba(168,85,247,0.08)' }}>
@@ -221,42 +304,93 @@ export default function LandingPage() {
         </p>
       </footer>
     </div>
+    </MotionConfig>
+  );
+}
+
+function FormSection({ step, title, hint, children }: { step: string; title: string; hint: string; children: React.ReactNode }) {
+  return (
+    <motion.section variants={rise}>
+      <div className="flex items-baseline gap-3 mb-4 pb-3 border-b border-border/30">
+        <span className="text-xs font-bold tabular-nums" style={{ color: '#a855f7' }}>{step}</span>
+        <h2 className="text-sm font-semibold uppercase tracking-wider">{title}</h2>
+        <span className="ml-auto text-xs text-muted-foreground/70 hidden sm:inline">{hint}</span>
+      </div>
+      {children}
+    </motion.section>
+  );
+}
+
+function OptionTile({ group, selected, onSelect, disabled, flush, children }: { group: string; selected: boolean; onSelect: () => void; disabled?: boolean; flush?: boolean; children: React.ReactNode }) {
+  return (
+    <motion.button type="button" role="radio" aria-checked={selected} aria-disabled={disabled} disabled={disabled} onClick={onSelect}
+      whileHover={disabled ? undefined : { y: -2 }} whileTap={disabled ? undefined : { scale: 0.98 }}
+      className={`group relative text-left rounded-xl border transition-colors ${flush ? '' : 'p-4 pr-8'} ${disabled ? 'opacity-40 cursor-not-allowed border-border/40 bg-muted/10' : selected ? 'border-purple-500/60' : 'border-border/50 bg-muted/20 hover:border-border hover:bg-muted/40'}`}>
+      {selected && !disabled && (
+        <motion.span layoutId={`tile-${group}`} className="absolute inset-0 rounded-[11px] bg-purple-500/[0.1] ring-1 ring-purple-500/40"
+          transition={{ type: 'spring', stiffness: 420, damping: 34 }} />
+      )}
+      <AnimatePresence>
+        {selected && !disabled && (
+          <motion.span key="check" className="absolute top-3 right-3 z-10" initial={{ scale: 0, rotate: -45 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0 }}>
+            <Check className="w-3.5 h-3.5" style={{ color: '#a855f7' }} />
+          </motion.span>
+        )}
+      </AnimatePresence>
+      <span className="relative block">{children}</span>
+    </motion.button>
+  );
+}
+
+function SummaryItem({ label, value, span }: { label: string; value: string; span?: boolean }) {
+  return (
+    <div className={`rounded-lg bg-muted/20 border border-border/30 px-3 py-2.5 min-w-0 ${span ? 'col-span-2' : ''}`}>
+      <dt className="text-[10px] uppercase tracking-wider text-muted-foreground/70">{label}</dt>
+      <dd className="text-sm font-medium mt-0.5 overflow-hidden">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.span key={value} className="block truncate" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
+            {value}
+          </motion.span>
+        </AnimatePresence>
+      </dd>
+    </div>
   );
 }
 
 /* ── Image Carousel ── */
-function ImageCarousel() {
+function ImageCarousel({ images, label }: { images: string[]; label: string }) {
   const [current, setCurrent] = useState(0);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
   useEffect(() => {
-    intervalRef.current = setInterval(() => setCurrent((p) => (p + 1) % HERO_IMAGES.length), 3500);
+    setCurrent(0);
+    intervalRef.current = setInterval(() => setCurrent((p) => (p + 1) % images.length), 3500);
     return () => clearInterval(intervalRef.current);
-  }, []);
+  }, [images]);
 
   const go = (dir: 1 | -1) => {
-    setCurrent((p) => (p + dir + HERO_IMAGES.length) % HERO_IMAGES.length);
+    setCurrent((p) => (p + dir + images.length) % images.length);
     clearInterval(intervalRef.current);
-    intervalRef.current = setInterval(() => setCurrent((p) => (p + 1) % HERO_IMAGES.length), 3500);
+    intervalRef.current = setInterval(() => setCurrent((p) => (p + 1) % images.length), 3500);
   };
 
   const resetInterval = () => {
     clearInterval(intervalRef.current);
-    intervalRef.current = setInterval(() => setCurrent((p) => (p + 1) % HERO_IMAGES.length), 3500);
+    intervalRef.current = setInterval(() => setCurrent((p) => (p + 1) % images.length), 3500);
   };
 
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="mt-2 w-full">
+    <div className="w-full">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground/50 font-medium">Hero Images</span>
-        <span className="text-[10px] text-muted-foreground/30 tabular-nums">{current + 1} / {HERO_IMAGES.length}</span>
+        <span className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground/50 font-medium">{label}</span>
+        <span className="text-[10px] text-muted-foreground/30 tabular-nums">{current + 1} / {images.length}</span>
       </div>
 
       <div className="relative group">
-        <div className="relative w-full aspect-[21/9] rounded-2xl overflow-hidden shadow-2xl"
+        <div className="relative w-full aspect-[16/10] rounded-xl overflow-hidden shadow-2xl"
           style={{ border: '1px solid rgba(168,85,247,0.15)', boxShadow: '0 12px 48px rgba(168,85,247,0.06), 0 4px 16px rgba(0,0,0,0.3)' }}>
           <AnimatePresence mode="wait">
-            <motion.img key={current} src={HERO_IMAGES[current]} alt=""
+            <motion.img key={current} src={images[current % images.length]} alt=""
               className="absolute inset-0 w-full h-full object-cover"
               initial={{ opacity: 0, scale: 1.06 }} animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }} />
@@ -277,7 +411,7 @@ function ImageCarousel() {
 
         {/* Thumbnail strip */}
         <div className="flex items-center gap-2 mt-3">
-          {HERO_IMAGES.map((img, i) => (
+          {images.map((img, i) => (
             <button key={i} onClick={() => { setCurrent(i); resetInterval(); }}
               className="relative flex-1 aspect-[3/2] rounded-lg overflow-hidden transition-all duration-300"
               style={{
@@ -297,6 +431,6 @@ function ImageCarousel() {
           ))}
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }

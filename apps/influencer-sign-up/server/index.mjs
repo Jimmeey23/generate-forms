@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
 import { createPaidCheckout, fulfillCheckout, handleStripeWebhook, listSessions, selectClassAndContinue, signupAdult, signupKid } from './momence.mjs';
+import { sendMetaCapi } from './meta-capi.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
@@ -30,6 +31,11 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
   res.json(await handleStripeWebhook(req.body, signature));
 }));
 app.use(express.json({ limit: '1mb' }));
+app.post('/api/tracking/meta-capi', asyncRoute(async (req, res) => {
+  const allowed = new Set(['Lead', 'WaiverSigned', 'CompleteRegistration', 'ClassBooked']);
+  if (!allowed.has(req.body?.eventName) || !String(req.body?.eventId || '').trim()) return res.status(400).json({ error: 'Invalid tracking event' });
+  res.json({ success: true, ...(await sendMetaCapi({ ...req.body, request: req })) });
+}));
 
 const HERO_IMAGES = [
   'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/s9wMadXfeYFPAp7MyaEAgr/pasted-image-1782902048664-tp5ozxot.jpg',
@@ -42,6 +48,9 @@ const HERO_IMAGES = [
   'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/n3WfwNPSpc7hXetukVhWZc/pasted-image-1782902048806-m84p5gkd.jpg',
   'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/hE8EfAKjgiatvJCWPRN311/pasted-image-1782902134354-vxs5bt0r.jpg',
 ];
+// Indexes into HERO_IMAGES that picture each class format.
+const FORMAT_HERO_INDEXES = { Barre: [1, 2, 8], 'Strength Lab': [3, 4, 5, 6], powerCycle: [0, 7] };
+const CLASS_FORMATS = Object.keys(FORMAT_HERO_INDEXES);
 const BRAND_LOGO = 'https://images.fillout.com/orgid-66954/flowpublicid-uxjuax2dbd/widgetid-default/jART4M3Yb27Pc9DpgJCpz5/pasted-image-1782902048740-lg84b5zl.png';
 const ACCENT_COLORS = ['#00f5a0', '#60a5fa', '#c084fc', '#fb7185', '#fbbf24', '#22d3ee'];
 const TEMPLATE_FIELDS = [
@@ -58,9 +67,9 @@ const SIGNATURE_FIELDS = [
   { id: 'signatureRealSignature', type: 'signature', label: 'Drawn signature', required: true, gridCol: 'full', helperText: 'Sign with your finger, stylus, trackpad, or mouse.' },
   { id: 'waiverAccepted', type: 'terms', label: 'I have read, signed, and accept the waiver and Physique 57 India privacy terms.', required: true, gridCol: 'full' },
 ];
-function fieldsForSignupType(signupType, targetStudio) {
+function fieldsForSignupType(signupType, targetStudio, classFormat = '') {
   const studio = String(targetStudio || FALLBACK_CENTER);
-  const adult = TEMPLATE_FIELDS.filter((field) => !['center', 'terms'].includes(field.id)).map((field) => field.id === 'classType' ? { ...field, options: getClassOptions(studio) } : field);
+  const adult = TEMPLATE_FIELDS.filter((field) => !['center', 'terms'].includes(field.id)).map((field) => field.id === 'classType' ? { ...field, options: classFormat ? [classFormat] : getClassOptions(studio), ...(classFormat ? { helperText: `This form is for ${classFormat} classes` } : {}) } : field);
   const common = [...adult.slice(0, 4), { id: 'center', type: 'select', label: 'Studio', required: true, gridCol: 'full', options: [studio] }];
   if (signupType === 'kids') return [
     ...common,
@@ -136,7 +145,7 @@ function publicForm(record, req) {
     influencerName: data.influencerName || '', eventName: data.eventName || '', metadataTitle: normalizeTitle(data.metadataTitle || title),
     metadataDescription: data.metadataDescription || record.description || '', formWidth: data.formWidth || 480, formMinHeight: data.formMinHeight || 0,
     formBorderRadius: data.formBorderRadius ?? 16, formPadding: data.formPadding ?? 40, boldLabels: data.boldLabels || false,
-    signupType: data.signupType || 'free', targetStudio: data.targetStudio || '', sessionId: data.sessionId || '',
+    signupType: data.signupType || 'free', targetStudio: data.targetStudio || '', sessionId: data.sessionId || '', classFormat: data.classFormat || '',
   };
 }
 
@@ -156,15 +165,20 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const targetStudio = String(req.body.targetStudio || FALLBACK_CENTER).trim();
   const sessionId = String(req.body.sessionId || '').trim();
   if (signupType === 'paid' && !/^\d+$/.test(sessionId)) return res.status(400).json({ error: 'Paid signup forms require a valid Momence session ID.' });
+  const requestedFormat = String(req.body.classFormat || '').trim();
+  if (requestedFormat && (!CLASS_FORMATS.includes(requestedFormat) || !getClassOptions(targetStudio).includes(requestedFormat))) return res.status(400).json({ error: `${requestedFormat} is not offered at ${targetStudio}.` });
+  const classFormat = signupType === 'kids' ? '' : requestedFormat;
   const influencerSlug = campaignName.toLowerCase().replace(/\s+/g, '_') || 'general';
   const seed = hashString(prompt.toLowerCase());
   const experienceName = eventName || `${influencerName || campaignName} Signature Experience`;
   const partnerName = influencerName || eventName || campaignName;
   const title = `Physique 57 x ${partnerName}${eventName && influencerName ? ` — ${eventName}` : ''}`;
   const peopleCopy = influencerName ? ` with ${influencerName}` : '';
-  const description = details || `Join ${experienceName}${peopleCopy} for a signature Physique 57 experience designed to move, challenge, and connect.`;
-  const metadataDescription = `${experienceName}${peopleCopy} — reserve your place for this Physique 57 signature experience.`;
-  const formData = { fields: fieldsForSignupType(signupType, targetStudio), signupType, targetStudio, sessionId, layout: 'stacked', heroImage: HERO_IMAGES[(seed >>> 4) % HERO_IMAGES.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: ACCENT_COLORS[(seed >>> 22) % ACCENT_COLORS.length], formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: influencerSlug, utmChannel: `${prompt.toLowerCase().includes('instagram') ? 'social' : 'influencer'}_${influencerSlug}`, utmCampaign: influencerSlug, hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
+  const experienceKind = classFormat ? `Physique 57 ${classFormat}` : 'signature Physique 57';
+  const description = details || `Join ${experienceName}${peopleCopy} for a ${experienceKind} experience designed to move, challenge, and connect.`;
+  const metadataDescription = `${experienceName}${peopleCopy} — reserve your place for this ${experienceKind} experience.`;
+  const heroPool = classFormat ? FORMAT_HERO_INDEXES[classFormat].map((index) => HERO_IMAGES[index]) : HERO_IMAGES;
+  const formData = { fields: fieldsForSignupType(signupType, targetStudio, classFormat), signupType, targetStudio, sessionId, classFormat, layout: 'stacked', heroImage: heroPool[(seed >>> 4) % heroPool.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: ACCENT_COLORS[(seed >>> 22) % ACCENT_COLORS.length], formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: influencerSlug, utmChannel: `${prompt.toLowerCase().includes('instagram') ? 'social' : 'influencer'}_${influencerSlug}`, utmCampaign: influencerSlug, hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
   const slug = await createUniqueSlug(eventName || influencerName || campaignName);
   const { data, error } = await supabase.from('forms').insert({ title, description, slug, form_data: formData, theme_color: 'midnight', status: 'Draft', creator_email: req.body.creatorEmail || '' }).select().single();
   if (error) throw error;
@@ -211,15 +225,46 @@ app.get('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
 }));
 
 const CENTER_CONFIG = {
-  'kwality house, kemps corner': { hostId: process.env.MOMENCE_MUMBAI_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_MUMBAI || process.env.MOMENCE_MUMBAI_TOKEN, sourceId: process.env.MOMENCE_MUMBAI_SOURCE_ID, city: 'mumbai' },
-  'supreme hq, bandra': { hostId: process.env.MOMENCE_MUMBAI_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_MUMBAI || process.env.MOMENCE_MUMBAI_TOKEN, sourceId: process.env.MOMENCE_MUMBAI_SOURCE_ID, city: 'mumbai' },
-  'courtside, mumbai': { hostId: process.env.MOMENCE_MUMBAI_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_MUMBAI || process.env.MOMENCE_MUMBAI_TOKEN, sourceId: process.env.MOMENCE_MUMBAI_SOURCE_ID, city: 'mumbai' },
-  'kenkere house, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_BENGALURU || process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
-  'the studio by copper & cloves, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_BENGALURU || process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
-  'sadashivnagar, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_BENGALURU || process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
-  'plash pilates, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_BENGALURU || process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
+  'kwality house, kemps corner': { hostId: process.env.MOMENCE_MUMBAI_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_MUMBAI || process.env.MOMENCE_MUMBAI_TOKEN, city: 'mumbai' },
+  'supreme hq, bandra': { hostId: process.env.MOMENCE_MUMBAI_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_MUMBAI || process.env.MOMENCE_MUMBAI_TOKEN, city: 'mumbai' },
+  'courtside, mumbai': { hostId: process.env.MOMENCE_MUMBAI_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_MUMBAI || process.env.MOMENCE_MUMBAI_TOKEN, city: 'mumbai' },
+  'kenkere house, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_BENGALURU || process.env.MOMENCE_BENGALURU_TOKEN, city: 'bengaluru' },
+  'the studio by copper & cloves, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_BENGALURU || process.env.MOMENCE_BENGALURU_TOKEN, city: 'bengaluru' },
+  'sadashivnagar, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_BENGALURU || process.env.MOMENCE_BENGALURU_TOKEN, city: 'bengaluru' },
+  'plash pilates, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_BENGALURU || process.env.MOMENCE_BENGALURU_TOKEN, city: 'bengaluru' },
 };
 const FALLBACK_CENTER = 'Kwality House, Kemps Corner';
+// Momence lead source IDs are per host account. Partner studios keep their own source;
+// otherwise the form type picks the source (Bengaluru has no dedicated kids source).
+const LEAD_SOURCE_IDS = {
+  mumbai: { kids: 212426, free: 14729, paid: 14729 }, // Physique Kids / Influencer Sign-up
+  bengaluru: { kids: 11606, free: 11606, paid: 11606 }, // Influencer Marketing
+};
+const CENTER_SOURCE_IDS = {
+  'the studio by copper & cloves, bengaluru': 92183, // the Studio by Copper + Cloves
+  'plash pilates, bengaluru': 263443, // Plash Pilates
+};
+function leadSourceId(center, city, signupType) {
+  return CENTER_SOURCE_IDS[center] || LEAD_SOURCE_IDS[city]?.[signupType] || LEAD_SOURCE_IDS[city]?.free;
+}
+const ATTRIBUTION_KEYS = ['utmSource', 'utmMedium', 'utmCampaign', 'utmTerm', 'utmContent', 'gclid', 'fbclid', 'referrer', 'landingPage', 'abVariant'];
+function cleanAttribution(input, city) {
+  const source = input && typeof input === 'object' ? input : {};
+  const result = Object.fromEntries(ATTRIBUTION_KEYS.map((key) => [key, String(source[key] || '').trim().slice(0, 500)]));
+  if (city === 'bengaluru') {
+    result.utmCampaign ||= 'bengaluru-landing';
+    result.abVariant ||= 'bengaluru-first-class-offer';
+  }
+  return result;
+}
+async function isDuplicateSubmission(formId, email, phone) {
+  const checks = [];
+  if (email) checks.push(supabase.from('form_submissions').select('id', { count: 'exact', head: true }).eq('form_id', formId).ilike('submitter_email', email.replace(/[\\%_]/g, '\\$&')));
+  if (phone) checks.push(supabase.from('form_submissions').select('id', { count: 'exact', head: true }).eq('form_id', formId).eq('phone', phone));
+  const results = await Promise.all(checks);
+  for (const { error, count } of results) { if (error) throw error; if (count) return true; }
+  return false;
+}
 function formatPhone(phone) {
   let value = String(phone || '').replace(/\D/g, '').replace(/^0+/, '');
   if (value.startsWith('91') && value.length === 12) value = value.slice(2);
@@ -231,19 +276,25 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   if (formError) throw formError;
   const formData = form.form_data || {};
   if (!responses.signatureRealSignature || !responses.waiverAccepted) return res.status(400).json({ error: 'A drawn signature and waiver acceptance are required.' });
-  const utmSource = formData.utmSource || req.body.utmSource || '';
+  const rawCenter = String(responses.center || '').trim();
+  const centerKey = CENTER_CONFIG[rawCenter.toLowerCase()] ? rawCenter.toLowerCase() : FALLBACK_CENTER.toLowerCase();
+  const config = CENTER_CONFIG[centerKey];
+  const attribution = cleanAttribution(req.body.attribution, config.city);
+  const utmSource = formData.utmSource || req.body.utmSource || attribution.utmSource;
   const utmChannel = formData.utmChannel || req.body.utmChannel || '';
-  const utmCampaign = formData.utmCampaign || req.body.utmCampaign || '';
-  const { data: submission, error } = await supabase.from('form_submissions').insert({ form_id: req.params.id, response_data: responses, submitter_email: responses.email || '', first_name: responses.firstName || '', last_name: responses.lastName || '', phone: responses.phone || '', center: responses.center || '', class_type: responses.classType || '', utm_source: utmSource, utm_campaign: utmCampaign, utm_channel: utmChannel }).select('id').single();
+  const utmCampaign = formData.utmCampaign || req.body.utmCampaign || attribution.utmCampaign;
+  const email = String(responses.email || '').trim();
+  const phone = formatPhone(responses.phone);
+  if (await isDuplicateSubmission(req.params.id, email, phone)) return res.status(409).json({ error: 'You have already signed up for this form with this email or phone number.', duplicate: true });
+  const { data: submission, error } = await supabase.from('form_submissions').insert({ form_id: req.params.id, response_data: responses, submitter_email: email, first_name: responses.firstName || '', last_name: responses.lastName || '', phone, center: rawCenter, class_type: responses.classType || '', utm_source: utmSource, utm_campaign: utmCampaign, utm_channel: utmChannel, utm_medium: attribution.utmMedium, utm_term: attribution.utmTerm, utm_content: attribution.utmContent, gclid: attribution.gclid, fbclid: attribution.fbclid, referrer: attribution.referrer, landing_page: attribution.landingPage, ab_variant: attribution.abVariant }).select('id').single();
   if (error) throw error;
   const { error: countError } = await supabase.rpc('increment_form_submission_count', { target_form_id: req.params.id });
   if (countError) console.error('Submission saved, but count update failed:', countError.message);
-  const rawCenter = String(responses.center || '').trim();
   const operationalForm = { id: form.id, slug: form.slug, signupType: formData.signupType || 'free', targetStudio: formData.targetStudio || rawCenter, sessionId: formData.sessionId || '' };
-  const config = CENTER_CONFIG[rawCenter.toLowerCase()] || CENTER_CONFIG[FALLBACK_CENTER.toLowerCase()];
+  const sourceId = leadSourceId(centerKey, config.city, operationalForm.signupType);
   let webhookStatus = 'NOT_CONFIGURED';
-  if (config.hostId && config.token && config.sourceId) {
-    const payload = { token: config.token, firstName: String(responses.firstName || '').trim(), lastName: String(responses.lastName || '.').trim() || '.', email: String(responses.email || '').trim(), phoneNumber: formatPhone(responses.phone), center: rawCenter || FALLBACK_CENTER, type: String(responses.classType || '').trim(), channel: utmChannel, sourceId: config.sourceId };
+  if (config.hostId && config.token && sourceId) {
+    const payload = { token: config.token, firstName: String(responses.firstName || '').trim(), lastName: String(responses.lastName || '.').trim() || '.', email, phoneNumber: phone, center: rawCenter || FALLBACK_CENTER, type: String(responses.classType || '').trim(), channel: utmChannel, sourceId, utm_medium: attribution.utmMedium, utm_term: attribution.utmTerm, utm_content: attribution.utmContent, gclid: attribution.gclid, fbclid: attribution.fbclid, referrer: attribution.referrer, landing_page: attribution.landingPage, ab_variant: attribution.abVariant };
     if (config.city === 'mumbai') Object.assign(payload, { utm_source: utmSource, utm_campaign: utmCampaign });
     else Object.assign(payload, { source: utmSource, campaign: utmCampaign });
     for (let attempt = 1; attempt <= 3; attempt += 1) {
