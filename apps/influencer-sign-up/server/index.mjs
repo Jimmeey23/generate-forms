@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
-import { completeFreeBooking, createPaidCheckout, fulfillCheckout, handleStripeWebhook, listSessions, signupAdult, signupKid } from './momence.mjs';
+import { createPaidCheckout, fulfillCheckout, handleStripeWebhook, listSessions, selectClassAndContinue, signupAdult, signupKid } from './momence.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
@@ -49,7 +49,7 @@ const TEMPLATE_FIELDS = [
   { id: 'lastName', type: 'text', label: 'Last Name', placeholder: 'Enter your last name', required: true, gridCol: 'half' },
   { id: 'email', type: 'email', label: 'Email Address', placeholder: 'your@email.com', required: true, gridCol: 'half', helperText: "We'll send your booking confirmation here" },
   { id: 'phone', type: 'tel', label: 'Phone Number', placeholder: '+91 98765 43210', required: true, gridCol: 'half', helperText: 'Include country code for WhatsApp updates' },
-  { id: 'center', type: 'select', label: 'Preferred Studio', placeholder: 'Choose your studio', required: true, gridCol: 'full', helperText: 'Select the location nearest to you', options: ['Kwality House, Kemps Corner', 'Supreme HQ, Bandra', 'Kenkere House, Bengaluru', 'The Studio by Copper & Cloves, Bengaluru', 'Sadashivnagar, Bengaluru'] },
+  { id: 'center', type: 'select', label: 'Preferred Studio', placeholder: 'Choose your studio', required: true, gridCol: 'full', helperText: 'Select the location nearest to you', options: ['Kwality House, Kemps Corner', 'Supreme HQ, Bandra', 'Kenkere House, Bengaluru', 'The Studio by Copper & Cloves, Bengaluru', 'Plash Pilates, Bengaluru'] },
   { id: 'classType', type: 'select', label: 'Class Format', placeholder: 'Choose a class', required: true, gridCol: 'full', helperText: 'Not sure? Try our signature Barre class', options: ['Barre', 'Strength Lab', 'powerCycle'] },
   { id: 'terms', type: 'terms', label: 'I agree to the Terms & Conditions and Privacy Policy of Physique 57', required: true, gridCol: 'full' },
 ];
@@ -74,8 +74,7 @@ function fieldsForSignupType(signupType, targetStudio) {
 }
 function getClassOptions(studio) {
   const value = String(studio || '').toLowerCase();
-  if (value.includes('supreme')) return ['Barre', 'powerCycle'];
-  if (value.includes('kenkere') || value.includes('copper') || value.includes('sadashivnagar')) return ['Barre'];
+  if (value.includes('kenkere') || value.includes('copper') || value.includes('plash') || value.includes('bengaluru')) return ['Barre'];
   return ['Barre', 'Strength Lab', 'powerCycle'];
 }
 function extractName(prompt) {
@@ -98,7 +97,8 @@ function normalizeFields(rawFields) {
   return fields.map((field) => {
     if (field?.id !== 'center') return field;
     const options = Array.isArray(field.options) ? field.options : [];
-    return options.includes('Sadashivnagar, Bengaluru') ? field : { ...field, options: [...options, 'Sadashivnagar, Bengaluru'] };
+    if (options.includes('Plash Pilates, Bengaluru')) return field;
+    return { ...field, options: [...options.filter((option) => option !== 'Sadashivnagar, Bengaluru'), 'Plash Pilates, Bengaluru'] };
   });
 }
 function normalizeTitle(value) {
@@ -217,6 +217,7 @@ const CENTER_CONFIG = {
   'kenkere house, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_BENGALURU || process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
   'the studio by copper & cloves, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_BENGALURU || process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
   'sadashivnagar, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_BENGALURU || process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
+  'plash pilates, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_LEAD_WEBHOOK_TOKEN_BENGALURU || process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
 };
 const FALLBACK_CENTER = 'Kwality House, Kemps Corner';
 function formatPhone(phone) {
@@ -274,10 +275,11 @@ app.get('/api/momence/sessions', asyncRoute(async (req, res) => {
   res.json({ sessions: await listSessions(center, classType, Number(req.query.daysAhead || 30)) });
 }));
 
-app.post('/api/momence/book-free', asyncRoute(async (req, res) => {
+app.post('/api/momence/select-class', asyncRoute(async (req, res) => {
   const { memberId, sessionId, center, classType, customerFields } = req.body || {};
   if (!Number(memberId) || !Number(sessionId)) return res.status(400).json({ error: 'memberId and sessionId are required' });
-  res.json(await completeFreeBooking({ memberId, sessionId, center, classType, customerFields }));
+  const origin = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+  res.json(await selectClassAndContinue({ memberId, sessionId, center, classType, customerFields, origin }));
 }));
 
 const distPath = path.resolve(__dirname, '../dist');

@@ -17,7 +17,7 @@ export const CENTERS = [
   'Supreme HQ, Bandra',
   'Kenkere House, Bengaluru',
   'The Studio by Copper & Cloves, Bengaluru',
-  'Sadashivnagar, Bengaluru',
+  'Plash Pilates, Bengaluru',
 ];
 
 export const CLASS_TYPES = [

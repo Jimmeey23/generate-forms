@@ -144,7 +144,7 @@ export default function LandingPage() {
                       <div>
                         <Label className="text-xs uppercase tracking-wider mb-2 block font-extrabold text-primary">Studio *</Label>
                         <select value={targetStudio} onChange={(e) => setTargetStudio(e.target.value)} className="h-12 w-full rounded-md bg-muted/30 border border-border/50 px-3 text-xs">
-                          {['Kwality House, Kemps Corner','Supreme HQ, Bandra','Kenkere House, Bengaluru','The Studio by Copper & Cloves, Bengaluru','Sadashivnagar, Bengaluru'].map((studio) => <option key={studio}>{studio}</option>)}
+                          {['Kwality House, Kemps Corner','Supreme HQ, Bandra','Kenkere House, Bengaluru','The Studio by Copper & Cloves, Bengaluru','Plash Pilates, Bengaluru'].map((studio) => <option key={studio}>{studio}</option>)}
                         </select>
                       </div>
                       <div>

@@ -9,13 +9,14 @@ const LOCATIONS = {
   'Supreme HQ, Bandra': { id: 29821, account: 'mumbai' },
   'Kenkere House, Bengaluru': { id: 22116, account: 'bengaluru' },
   'The Studio by Copper & Cloves, Bengaluru': { id: 36372, account: 'bengaluru' },
-  'Sadashivnagar, Bengaluru': { id: 287883, account: 'bengaluru', homeLocationId: 22116 },
+  'Plash Pilates, Bengaluru': { id: 383332, account: 'bengaluru', homeLocationId: 22116 },
+  'Sadashivnagar, Bengaluru': { id: 383332, account: 'bengaluru', homeLocationId: 22116 },
 };
 const MEMBERSHIPS = {
   mumbai: { free: 33609, paid: 240932, price: 1943, label: 'Newcomers 2 For 1' },
   22116: { paid: 654474, price: 709, product: 'prod_UykA65J7aUXlLe', label: 'Bengaluru Intro Pack' },
   36372: { paid: 548528, price: 945, product: 'prod_UykBa2v6q915IL', label: 'Bengaluru Intro Pack' },
-  287883: { paid: 111528, price: 1418, priceId: 'price_1SvY3sFDEp8YEMWaXio0FOx8', label: 'Bengaluru Intro Pack' },
+  383332: { paid: 111528, price: 1418, priceId: 'price_1SvY3sFDEp8YEMWaXio0FOx8', label: 'Bengaluru Intro Pack' },
 };
 const PAYMENT_METHODS = { mumbai: 4578, bengaluru: 5801 };
 const tokenCache = new Map();
@@ -122,9 +123,9 @@ function matchesClassFormat(name, classType) {
 export async function listSessions(center, classType, daysAhead = 30) {
   const config = locationConfig(center); const now = new Date(); const end = new Date(Date.now() + Math.min(60, Math.max(1, daysAhead)) * 86400000);
   let payload = [];
-  if (config.id === 287883) {
+  if (config.id === 383332) {
     const params = new URLSearchParams({ sortBy: 'startsAt', sortOrder: 'ASC', dateFrom: now.toISOString(), page: '0', pageSize: '200', timeZone: 'Asia/Kolkata', grouped: 'false' });
-    params.append('locationIds[]', '287883'); params.append('locationIds[]', '36372'); params.append('status[]', 'published'); params.append('status[]', 'unpublished'); params.append('tagIds[]', '383332');
+    params.append('locationIds[]', '383332'); params.append('status[]', 'published'); params.append('status[]', 'unpublished');
     const result = await readonly(`/host/33905/sessions?${params}`); payload = Array.isArray(result) ? result : Array.isArray(result.payload) ? result.payload : (result.payload?.sessions || result.sessions || []);
   } else {
     const params = new URLSearchParams({ page: '0', pageSize: '200', sortBy: 'startsAt', sortOrder: 'ASC', locationId: String(config.id), startAfter: now.toISOString(), startBefore: end.toISOString(), includeCancelled: 'false', includeChildLocations: 'true' });
@@ -146,20 +147,12 @@ async function saveCustomerFields(memberId, values) {
   const mapped = {}; for (const [key, id] of Object.entries(ids)) { let value = String(values[key] || '').trim(); if (key === 'emergencyContactInfo') value = value.replace(/\D/g, ''); if (value) mapped[String(id)] = value; }
   await dashboard('/host/13752/customer-fields/data', { method: 'POST', body: JSON.stringify({ memberId, values: mapped }) });
 }
-export async function completeFreeBooking({ memberId, sessionId, center, classType, customerFields }) {
-  const config = locationConfig(center); const requiresShoeSize = /cycle|spin/i.test(classType || '');
-  validateCustomerFields(customerFields || {}, requiresShoeSize);
-  await saveCustomerFields(Number(memberId), customerFields || {});
-  const plan = config.account === 'mumbai' ? MEMBERSHIPS.mumbai : MEMBERSHIPS[config.id];
-  const membershipId = config.account === 'mumbai' ? plan.free : plan.paid;
-  await bookWithMembership(Number(memberId), Number(sessionId), config, membershipId);
-  return { booked: true, memberId: Number(memberId), sessionId: Number(sessionId) };
-}
 export async function signupAdult(input, form) {
   const config = locationConfig(form.targetStudio || input.center); const created = await createMember(input, config); await signWaivers(created.memberId, input.signatureRealSignature, config);
   const plan = config.account === 'mumbai' ? MEMBERSHIPS.mumbai : MEMBERSHIPS[config.id];
-  if (form.signupType === 'free') { const membershipId = config.account === 'mumbai' ? plan.free : plan.paid; await grantMembership(created.memberId, config, membershipId, false); if (form.sessionId) await bookWithMembership(created.memberId, Number(form.sessionId), config, membershipId); }
-  return { memberId: created.memberId, config, plan, paymentRequired: form.signupType === 'paid', booked: form.signupType === 'free' && Boolean(form.sessionId) };
+  const paidOffer = form.signupType === 'paid' || config.account === 'bengaluru' || /strength|cycle/i.test(input.classType || '');
+  if (!paidOffer) { await grantMembership(created.memberId, config, plan.free, false); if (form.sessionId) await bookWithMembership(created.memberId, Number(form.sessionId), config, plan.free); }
+  return { memberId: created.memberId, config, plan, paymentRequired: paidOffer && Boolean(form.sessionId), scheduleRequiresPayment: paidOffer && !form.sessionId, booked: !paidOffer && Boolean(form.sessionId) };
 }
 function splitChild(name, parentLastName) { const parts = cleanName(name).split(' ').filter(Boolean); return { firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || cleanName(parentLastName) }; }
 export async function signupKid(input, form) {
@@ -179,8 +172,24 @@ export async function createPaidCheckout({ memberId, form, origin }) {
   if (!sessionId) throw new Error('Paid signup forms require a Momence session ID.');
   const metadata = { memberId: String(memberId), sessionId: String(sessionId), homeLocationId: String(config.id), membershipId: String(plan.paid), formId: String(form.id) };
   const line = plan.priceId ? { price: plan.priceId, quantity: 1 } : { quantity: 1, price_data: { currency: 'inr', unit_amount: plan.price * 100, ...(plan.product ? { product: plan.product } : { product_data: { name: plan.label, description: 'Physique 57 India introductory membership.' } }) } };
-  const checkout = await stripe().checkout.sessions.create({ mode: 'payment', client_reference_id: `${memberId}:${sessionId}`, success_url: `${origin}/payment-confirmation?checkout_session_id={CHECKOUT_SESSION_ID}`, cancel_url: `${origin}/f/${form.slug}?payment=cancelled`, metadata, payment_intent_data: { metadata }, line_items: [line] });
+  const checkout = await stripe().checkout.sessions.create({ mode: 'payment', client_reference_id: `${memberId}:${sessionId}`, success_url: `${origin}/payment-confirmation?checkout_session_id={CHECKOUT_SESSION_ID}`, cancel_url: form.cancelUrl || `${origin}/f/${form.slug}?payment=cancelled`, metadata, payment_intent_data: { metadata }, line_items: [line] });
   return checkout.url;
+}
+export async function selectClassAndContinue({ memberId, sessionId, center, classType, customerFields, origin }) {
+  const config = locationConfig(center); const requiresShoeSize = /cycle|spin/i.test(classType || '');
+  validateCustomerFields(customerFields || {}, requiresShoeSize); await saveCustomerFields(Number(memberId), customerFields || {});
+  const requiresPayment = config.account === 'bengaluru' || /strength|cycle/i.test(classType || '');
+  if (requiresPayment) {
+    const query = new URLSearchParams({ center, classType }).toString();
+    const checkoutUrl = await createPaidCheckout({ memberId: Number(memberId), form: { id: 'schedule', slug: '', targetStudio: center, sessionId: String(sessionId), cancelUrl: `${origin}/classes/${memberId}?${query}` }, origin });
+    return { booked: false, checkoutUrl };
+  }
+  const plan = MEMBERSHIPS.mumbai;
+  const compatible = await momence('/host/checkout/compatible-memberships', { method: 'POST', body: JSON.stringify({ memberId: Number(memberId), homeLocationId: config.homeLocationId, items: [{ id: '1', type: 'session', sessionId: Number(sessionId) }] }) }, config.account);
+  const hasOpenBarre = compatible.items?.some((item) => !item.incompatibility && item.boughtMembership?.membership?.id === plan.free);
+  if (!hasOpenBarre) await grantMembership(Number(memberId), config, plan.free, false);
+  await bookWithMembership(Number(memberId), Number(sessionId), config, plan.free);
+  return { booked: true, checkoutUrl: null, memberId: Number(memberId), sessionId: Number(sessionId) };
 }
 export async function fulfillCheckout(checkoutSessionId) {
   const checkout = await stripe().checkout.sessions.retrieve(checkoutSessionId); if (checkout.payment_status !== 'paid' && checkout.status !== 'complete') throw new Error('Stripe Checkout session is not paid yet.');
