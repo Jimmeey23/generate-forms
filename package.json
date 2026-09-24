@@ -1,0 +1,14 @@
+{
+  "name": "influencer-sign-up",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w apps/influencer-sign-up",
+    "build": "npm run build -w apps/influencer-sign-up",
+    "preview": "npm run preview -w apps/influencer-sign-up",
+    "typecheck": "npm run typecheck -w apps/influencer-sign-up"
+  }
+}

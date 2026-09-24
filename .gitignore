@@ -1,0 +1,18 @@
+node_modules
+dist
+.env
+.env.local
+.env.*.local
+.tsbuildinfo
+__zite__*
+.npmrc
+supabase/.temp/
+
+# Legacy Zite export artifacts replaced by the Supabase backend.
+.zite/
+apps/*/.zite/
+_zite-export-manifest.json
+zite.*
+apps/*/zite.*
+/src/
+/@types/
