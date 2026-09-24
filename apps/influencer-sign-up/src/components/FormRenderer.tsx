@@ -15,6 +15,7 @@ import { BRAND_LOGO, BRAND_LOGO_DARK, isBrandLogo } from '@/lib/constants';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import SignaturePad from './SignaturePad';
+import LegalDialog, { linkLegalPhrases, type LegalKind } from './LegalDialog';
 
 export type FormField = {
   id: string;
@@ -60,6 +61,9 @@ export type FormDataType = {
 const ThemeCtx = createContext<{ dark: boolean; toggle: () => void }>({ dark: true, toggle: () => {} });
 const useFormTheme = () => useContext(ThemeCtx);
 const ValuesCtx = createContext<Record<string, any>>({});
+// Checkbox colours come from the form theme so the box stays visible on the white light-mode card.
+const FORM_CHECKBOX = 'mt-0.5 border-[hsl(var(--form-text-muted))] data-[state=checked]:border-[hsl(var(--form-text))] data-[state=checked]:bg-[hsl(var(--form-text))] data-[state=checked]:text-[hsl(var(--form-card))]';
+const LegalCtx = createContext<(kind: LegalKind) => void>(() => {});
 
 const COUNTRY_CODES = [
   { code: '+91', flag: '🇮🇳', name: 'India' },
@@ -103,6 +107,12 @@ export default function FormRenderer({ form, preview, onSubmit, submitting }: {
   const [values, setValues] = useState<Record<string, any>>(() => Object.fromEntries(form.fields.filter((field) => field.type === 'select' && field.options?.length === 1).map((field) => [field.id, field.options![0]])));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isDark, setIsDark] = useState(true);
+  const [legalOpen, setLegalOpen] = useState<LegalKind | null>(null);
+  // Legal documents follow the chosen studio's city; forms with child fields use the Juniors waiver.
+  const legalContext = {
+    city: /bengaluru|kenkere|copper|plash|sadashivnagar/i.test(String(values.center || form.fields.find((f) => f.id === 'center')?.options?.[0] || '')) ? 'bengaluru' as const : 'mumbai' as const,
+    kids: form.fields.some((f) => f.id === 'childName'),
+  };
   const theme = getTheme(form.themeColor);
   const layout = form.layout || 'cinematic';
 
@@ -156,7 +166,12 @@ export default function FormRenderer({ form, preview, onSubmit, submitting }: {
   return (
     <ThemeCtx.Provider value={{ dark: isDark, toggle: () => setIsDark(d => !d) }}>
       <ValuesCtx.Provider value={values}>
-        <div className={isDark ? '' : 'form-light'} style={{ '--form-accent': form.accentColor || '#00f5a0' } as React.CSSProperties}>{layoutEl}</div>
+        <LegalCtx.Provider value={setLegalOpen}>
+          <div className={isDark ? '' : 'form-light'} style={{ '--form-accent': form.accentColor || '#00f5a0' } as React.CSSProperties}>
+            {layoutEl}
+            <LegalDialog kind={legalOpen} context={legalContext} dark={isDark} onClose={() => setLegalOpen(null)} />
+          </div>
+        </LegalCtx.Provider>
       </ValuesCtx.Provider>
     </ThemeCtx.Provider>
   );
@@ -287,7 +302,7 @@ function FormSection({ form, onSubmit, values, errors, setValue, submitting, chi
   const pad = form.formPadding ?? 40;
   const br = form.formBorderRadius ?? 12;
   return (
-    <form onSubmit={onSubmit} className="space-y-8" style={{ padding: `${pad}px`, borderRadius: `${br}px`, minHeight: form.formMinHeight ? `${form.formMinHeight}px` : undefined }}>
+    <form onSubmit={onSubmit} autoComplete="on" className="space-y-8" style={{ padding: `${pad}px`, borderRadius: `${br}px`, minHeight: form.formMinHeight ? `${form.formMinHeight}px` : undefined }}>
       <FieldsGrid fields={form.fields} values={values} errors={errors} setValue={setValue} bold={form.boldLabels} />
       <SubmitBtn submitting={submitting} />
       <Footer />
@@ -302,7 +317,7 @@ function StackedLayout({ form, theme, values, errors, setValue, onSubmit, submit
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7 }}
       className="overflow-hidden shadow-2xl relative"
-      style={{ background: 'hsl(var(--form-card))', border: '1px solid hsl(var(--form-border))', borderRadius: `${br}px` }}>
+      style={{ background: 'hsl(var(--form-card))', border: '1px solid hsl(var(--form-card-border))', borderRadius: `${br}px` }}>
       <ThemeToggle />
       {form.heroImage ? (
         <div className="relative overflow-hidden" style={{ height: `${form.heroHeight || 420}px` }}>
@@ -338,7 +353,7 @@ function SplitLayout({ form, theme, values, errors, setValue, onSubmit, submitti
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6 }}
       className="overflow-hidden shadow-2xl relative"
-      style={{ background: 'hsl(var(--form-card))', border: '1px solid hsl(var(--form-border))', borderRadius: `${br}px` }}>
+      style={{ background: 'hsl(var(--form-card))', border: '1px solid hsl(var(--form-card-border))', borderRadius: `${br}px` }}>
       <ThemeToggle />
       <div className="flex flex-col lg:flex-row min-h-[700px]">
         <div className="relative min-h-[340px] lg:min-h-0 overflow-hidden" style={{ width: undefined, flex: `0 0 ${heroW}%` }}>
@@ -391,7 +406,7 @@ function CinematicLayout({ form, theme, values, errors, setValue, onSubmit, subm
       </div>
       <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.6 }}
         className="shadow-2xl relative z-10"
-        style={{ background: 'hsl(var(--form-card))', border: '1px solid hsl(var(--form-border))', borderTop: 'none', borderBottomLeftRadius: `${br}px`, borderBottomRightRadius: `${br}px` }}>
+        style={{ background: 'hsl(var(--form-card))', border: '1px solid hsl(var(--form-card-border))', borderTop: 'none', borderBottomLeftRadius: `${br}px`, borderBottomRightRadius: `${br}px` }}>
         <FormSection form={form} onSubmit={onSubmit} values={values} errors={errors} setValue={setValue} submitting={submitting} />
       </motion.div>
     </div>
@@ -404,7 +419,7 @@ function MinimalLayout({ form, values, errors, setValue, onSubmit, submitting }:
   return (
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
       className="overflow-hidden shadow-2xl relative"
-      style={{ background: 'hsl(var(--form-card))', border: '1px solid hsl(var(--form-border))', borderRadius: `${br}px` }}>
+      style={{ background: 'hsl(var(--form-card))', border: '1px solid hsl(var(--form-card-border))', borderRadius: `${br}px` }}>
       <ThemeToggle />
       <div className="p-8 md:p-12 pb-6 text-center">
         <BrandLogo onDarkBg={dark} size={form.logoSize || 'lg'} position={form.logoPosition} invert={form.logoInvert} logoUrl={form.logoUrl} />
@@ -523,20 +538,27 @@ function CountryCodePicker({ value, onChange }: { value: string; onChange: (v: s
   );
 }
 
+// Browser autofill hints per field; child details stay generic so the parent's own name isn't suggested for them.
+const AUTOCOMPLETE: Record<string, string> = {
+  firstName: 'given-name', lastName: 'family-name', email: 'email', phone: 'tel-national',
+  signatureName: 'name', childName: 'on', batch: 'on',
+};
+const autoCompleteFor = (field: FormField) => AUTOCOMPLETE[field.id] || (field.type === 'email' ? 'email' : 'on');
+
 /* ═══ PHONE INPUT ═══ */
 function PhoneInput({ field, value, onChange, error }: { field: FormField; value: any; onChange: (v: any) => void; error?: string }) {
   const [cc, setCc] = useState('+91');
   const num = typeof value === 'string' ? value.replace(/^\+\d+\s*/, '') : '';
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-medium uppercase tracking-wider" style={{ color: 'hsl(var(--form-text-secondary))' }}>
+      <Label htmlFor={field.id} className="text-xs font-medium uppercase tracking-wider" style={{ color: 'hsl(var(--form-text-secondary))' }}>
         {field.label}{field.required && <span className="text-red-400 ml-0.5">*</span>}
       </Label>
       <div className="flex">
         <CountryCodePicker value={cc} onChange={(c) => { setCc(c); if (num) onChange(`${c} ${num}`); }} />
-        <input type="tel" placeholder={field.placeholder || '98765 43210'} value={num}
+        <input type="tel" name={field.id} id={field.id} autoComplete={autoCompleteFor(field)} inputMode="tel" placeholder={field.placeholder || '98765 43210'} value={num}
           onChange={e => onChange(e.target.value ? `${cc} ${e.target.value}` : '')}
-          className="h-11 flex-1 rounded-r-lg border-l-0 px-3 text-sm outline-none transition-colors"
+          className="form-field h-11 flex-1 rounded-r-lg border-l-0 px-3 text-sm outline-none transition-colors"
           style={{ background: 'hsl(var(--form-surface))', border: `1px solid hsl(var(--form-${error ? 'error' : 'border'}))`, borderLeft: 'none', color: 'hsl(var(--form-text))' }} />
       </div>
       {field.helperText && <p className="text-[11px]" style={{ color: 'hsl(var(--form-text-muted))' }}>{field.helperText}</p>}
@@ -584,22 +606,24 @@ function ClassTypePicker({ field, value, onChange, error }: { field: FormField; 
 
 /* ═══ FIELD RENDERER ═══ */
 function FieldRenderer({ field, value, onChange, error, bold }: { field: FormField; value: any; onChange: (v: any) => void; error?: string; bold?: boolean }) {
+  const { dark } = useFormTheme();
+  const openLegal = useContext(LegalCtx);
   if (field.type === 'tel') return <PhoneInput field={field} value={value} onChange={onChange} error={error} />;
   if (field.id === 'classType' && field.type === 'select') return <ClassTypePicker field={field} value={value} onChange={onChange} error={error} />;
 
   const labelClass = `text-xs uppercase tracking-wider ${bold ? 'font-bold' : 'font-medium'}`;
 
   if (field.type === 'signature') {
-    return <div className="space-y-1.5"><Label className={labelClass} style={{ color: 'hsl(var(--form-text-secondary))' }}>{field.label}<span className="text-red-400 ml-0.5">*</span></Label><SignaturePad value={value} onChange={onChange} />{field.helperText && <p className="text-[11px]" style={{ color: 'hsl(var(--form-text-muted))' }}>{field.helperText}</p>}{error && <p className="text-xs" style={{ color: 'hsl(var(--form-error))' }}>{error}</p>}</div>;
+    return <div className="space-y-1.5"><Label className={labelClass} style={{ color: 'hsl(var(--form-text-secondary))' }}>{field.label}<span className="text-red-400 ml-0.5">*</span></Label><SignaturePad value={value} onChange={onChange} dark={dark} />{field.helperText && <p className="text-[11px]" style={{ color: 'hsl(var(--form-text-muted))' }}>{field.helperText}</p>}{error && <p className="text-xs" style={{ color: 'hsl(var(--form-error))' }}>{error}</p>}</div>;
   }
 
   if (field.type === 'terms') {
     return (
       <div className="space-y-1">
         <div className="flex items-start gap-3 py-3 px-4 rounded-xl" style={{ background: 'hsl(var(--form-surface))', border: '1px solid hsl(var(--form-border))' }}>
-          <Checkbox id={field.id} checked={!!value} onCheckedChange={c => onChange(!!c)} className="mt-0.5" />
+          <Checkbox id={field.id} checked={!!value} onCheckedChange={c => onChange(!!c)} className={FORM_CHECKBOX} />
           <Label htmlFor={field.id} className="text-sm font-normal leading-relaxed cursor-pointer" style={{ color: 'hsl(var(--form-text-secondary))' }}>
-            {field.label} <span className="text-red-400">*</span>
+            {linkLegalPhrases(field.label, openLegal, dark)} <span className="text-red-400">*</span>
           </Label>
         </div>
         {error && <p className="text-xs" style={{ color: 'hsl(var(--form-error))' }}>{error}</p>}
@@ -620,7 +644,7 @@ function FieldRenderer({ field, value, onChange, error, bold }: { field: FormFie
               {d ? format(d, 'PPP') : (field.placeholder || 'Pick a date')}
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start" style={{ background: 'hsl(var(--form-dropdown-bg))', border: '1px solid hsl(var(--form-border))' }}>
+          <PopoverContent className={`w-auto p-0 ${dark ? '' : 'form-light'}`} align="start" style={{ background: 'hsl(var(--form-dropdown-bg))', border: '1px solid hsl(var(--form-border))', color: 'hsl(var(--form-text))' }}>
             <Calendar mode="single" selected={d} onSelect={day => onChange(day ? day.toISOString().split('T')[0] : '')} />
           </PopoverContent>
         </Popover>
@@ -638,20 +662,21 @@ function FieldRenderer({ field, value, onChange, error, bold }: { field: FormFie
 
   return (
     <div className="space-y-1.5">
-      <Label className={labelClass} style={{ color: 'hsl(var(--form-text-secondary))' }}>
+      <Label htmlFor={field.id} className={labelClass} style={{ color: 'hsl(var(--form-text-secondary))' }}>
         {field.label}{field.required && <span className="text-red-400 ml-0.5">*</span>}
       </Label>
       {(field.type === 'text' || field.type === 'email' || field.type === 'url' || field.type === 'number') ? (
-        <input type={field.type} placeholder={field.placeholder} value={value || ''} onChange={e => onChange(e.target.value)}
-          className="h-11 w-full rounded-lg px-3 text-sm outline-none transition-colors placeholder:opacity-30" style={inputStyle} />
+        <input type={field.type} name={field.id} id={field.id} autoComplete={autoCompleteFor(field)} placeholder={field.placeholder} value={value || ''} onChange={e => onChange(e.target.value)}
+          className="h-11 w-full rounded-lg px-3 text-sm outline-none transition-colors form-field" style={inputStyle} />
       ) : field.type === 'textarea' ? (
-        <textarea placeholder={field.placeholder} value={value || ''} rows={3} onChange={e => onChange(e.target.value)}
-          className="w-full rounded-lg px-3 py-2 text-sm outline-none transition-colors resize-none placeholder:opacity-30" style={inputStyle} />
+        <textarea name={field.id} id={field.id} autoComplete={autoCompleteFor(field)} placeholder={field.placeholder} value={value || ''} rows={3} onChange={e => onChange(e.target.value)}
+          className="w-full rounded-lg px-3 py-2 text-sm outline-none transition-colors resize-none form-field" style={inputStyle} />
       ) : field.type === 'select' ? (
         <Select value={value || ''} onValueChange={onChange}>
-          <SelectTrigger className="h-11" style={inputStyle}><SelectValue placeholder={field.placeholder || 'Select...'} /></SelectTrigger>
-          <SelectContent style={{ background: 'hsl(var(--form-dropdown-bg))', border: '1px solid hsl(var(--form-border))' }}>
-            {field.options?.map(opt => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}
+          <SelectTrigger className="h-11 data-[placeholder]:text-[hsl(var(--form-placeholder))]" style={inputStyle}><SelectValue placeholder={field.placeholder || 'Select...'} /></SelectTrigger>
+          {/* Menus render outside the themed wrapper, so they carry the theme class themselves. */}
+          <SelectContent className={dark ? '' : 'form-light'} style={{ background: 'hsl(var(--form-dropdown-bg))', border: '1px solid hsl(var(--form-border))', color: 'hsl(var(--form-text))' }}>
+            {field.options?.map(opt => <SelectItem key={opt} value={opt} className="focus:bg-[hsl(var(--form-surface-hover))] focus:text-[hsl(var(--form-text))]">{opt}</SelectItem>)}
           </SelectContent>
         </Select>
       ) : field.type === 'radio' ? (
@@ -667,8 +692,8 @@ function FieldRenderer({ field, value, onChange, error, bold }: { field: FormFie
       ) : field.type === 'rating' || field.type === 'scale' ? (
         <RatingInput value={value || 0} max={field.max || 5} onChange={onChange} />
       ) : (
-        <input placeholder={field.placeholder} value={value || ''} onChange={e => onChange(e.target.value)}
-          className="h-11 w-full rounded-lg px-3 text-sm outline-none transition-colors placeholder:opacity-30" style={inputStyle} />
+        <input name={field.id} id={field.id} autoComplete={autoCompleteFor(field)} placeholder={field.placeholder} value={value || ''} onChange={e => onChange(e.target.value)}
+          className="h-11 w-full rounded-lg px-3 text-sm outline-none transition-colors form-field" style={inputStyle} />
       )}
       {field.helperText && <p className="text-[11px] leading-relaxed" style={{ color: 'hsl(var(--form-text-muted))' }}>{field.helperText}</p>}
       {error && <p className="text-xs" style={{ color: 'hsl(var(--form-error))' }}>{error}</p>}

@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react';
 
-export default function SignaturePad({ value, onChange }: { value?: string; onChange: (value: string) => void }) {
+// Ink follows the form theme: light strokes on the dark form, near-black on the light one.
+const inkFor = (dark: boolean) => (dark ? '#f8fafc' : '#111827');
+
+export default function SignaturePad({ value, onChange, dark = true }: { value?: string; onChange: (value: string) => void; dark?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const drawing = useRef(false);
@@ -21,9 +24,22 @@ export default function SignaturePad({ value, onChange }: { value?: string; onCh
     resize(); window.addEventListener('resize', resize); return () => window.removeEventListener('resize', resize);
   }, []);
 
+  // Repaint existing strokes when the theme changes so a signature never disappears into the background.
+  useEffect(() => {
+    const canvas = canvasRef.current; const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = inkFor(dark); ctx.lineWidth = 2.4;
+    for (const path of paths.current) {
+      ctx.beginPath(); ctx.moveTo(path[0], path[1]);
+      for (let i = 2; i < path.length; i += 2) ctx.lineTo(path[i], path[i + 1]);
+      ctx.stroke();
+    }
+  }, [dark]);
+
   const point = (event: React.PointerEvent<HTMLCanvasElement>) => { const rect = canvasRef.current!.getBoundingClientRect(); return { x: event.clientX - rect.left, y: event.clientY - rect.top }; };
   const begin = (event: React.PointerEvent<HTMLCanvasElement>) => { event.currentTarget.setPointerCapture(event.pointerId); drawing.current = true; const p = point(event); current.current = [p.x, p.y, p.x, p.y]; paths.current.push(current.current); last.current = p; };
-  const move = (event: React.PointerEvent<HTMLCanvasElement>) => { if (!drawing.current || !last.current) return; const next = point(event); const ctx = canvasRef.current?.getContext('2d'); if (!ctx) return; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#f8fafc'; ctx.lineWidth = 2.4; ctx.beginPath(); ctx.moveTo(last.current.x, last.current.y); ctx.lineTo(next.x, next.y); ctx.stroke(); current.current.push(next.x, next.y); last.current = next; };
+  const move = (event: React.PointerEvent<HTMLCanvasElement>) => { if (!drawing.current || !last.current) return; const next = point(event); const ctx = canvasRef.current?.getContext('2d'); if (!ctx) return; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = inkFor(dark); ctx.lineWidth = 2.4; ctx.beginPath(); ctx.moveTo(last.current.x, last.current.y); ctx.lineTo(next.x, next.y); ctx.stroke(); current.current.push(next.x, next.y); last.current = next; };
   const end = () => { if (!drawing.current) return; drawing.current = false; last.current = null; onChange(JSON.stringify(paths.current.map((path) => path.map((n) => Number(n.toFixed(4)))))); };
   const clear = () => { const canvas = canvasRef.current; canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height); paths.current = []; onChange(''); };
   return <div ref={wrapRef} className="relative h-32 w-full overflow-hidden rounded-lg border" style={{ background: 'hsl(var(--form-surface))', borderColor: value ? 'var(--form-accent)' : 'hsl(var(--form-border))' }}>
