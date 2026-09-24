@@ -151,14 +151,14 @@ export async function completeFreeBooking({ memberId, sessionId, center, classTy
   validateCustomerFields(customerFields || {}, requiresShoeSize);
   await saveCustomerFields(Number(memberId), customerFields || {});
   const plan = config.account === 'mumbai' ? MEMBERSHIPS.mumbai : MEMBERSHIPS[config.id];
-  if (config.account === 'mumbai') await bookWithMembership(Number(memberId), Number(sessionId), config, plan.free);
-  else await momence(`/host/sessions/${Number(sessionId)}/bookings/free`, { method: 'POST', body: JSON.stringify({ memberId: Number(memberId) }) }, config.account);
+  const membershipId = config.account === 'mumbai' ? plan.free : plan.paid;
+  await bookWithMembership(Number(memberId), Number(sessionId), config, membershipId);
   return { booked: true, memberId: Number(memberId), sessionId: Number(sessionId) };
 }
 export async function signupAdult(input, form) {
   const config = locationConfig(form.targetStudio || input.center); const created = await createMember(input, config); await signWaivers(created.memberId, input.signatureRealSignature, config);
   const plan = config.account === 'mumbai' ? MEMBERSHIPS.mumbai : MEMBERSHIPS[config.id];
-  if (form.signupType === 'free') { if (config.account === 'mumbai') await grantMembership(created.memberId, config, plan.free, false); if (form.sessionId) { if (config.account === 'mumbai') await bookWithMembership(created.memberId, Number(form.sessionId), config, plan.free); else await momence(`/host/sessions/${Number(form.sessionId)}/bookings/free`, { method: 'POST', body: JSON.stringify({ memberId: created.memberId }) }, config.account); } }
+  if (form.signupType === 'free') { const membershipId = config.account === 'mumbai' ? plan.free : plan.paid; await grantMembership(created.memberId, config, membershipId, false); if (form.sessionId) await bookWithMembership(created.memberId, Number(form.sessionId), config, membershipId); }
   return { memberId: created.memberId, config, plan, paymentRequired: form.signupType === 'paid', booked: form.signupType === 'free' && Boolean(form.sessionId) };
 }
 function splitChild(name, parentLastName) { const parts = cleanName(name).split(' ').filter(Boolean); return { firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || cleanName(parentLastName) }; }
