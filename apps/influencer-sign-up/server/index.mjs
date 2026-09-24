@@ -21,7 +21,8 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 });
 const asyncRoute = (handler) => async (req, res) => {
   try { await handler(req, res); }
-  catch (error) { console.error(error); res.status(500).json({ error: error instanceof Error ? error.message : 'Unexpected server error' }); }
+  // Supabase returns plain error objects rather than Error instances, so read `message` from either.
+  catch (error) { console.error(error); res.status(500).json({ error: error?.message || 'Unexpected server error' }); }
 };
 const app = express();
 app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), asyncRoute(async (req, res) => {
