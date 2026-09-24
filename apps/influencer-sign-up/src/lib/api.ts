@@ -34,6 +34,9 @@ export const deleteForm = (input: { id: string }) => request<{ success: boolean 
 export const getSubmissions = (input: { formId: string }) => request<GetSubmissionsOutputType>(`/api/forms/${encodeURIComponent(input.formId)}/submissions`);
 export const submitForm = (input: { formId: string; responses: Record<string, any>; utmSource?: string; utmChannel?: string; utmCampaign?: string }) => {
   const { formId, ...body } = input;
-  return request<{ success: boolean; submissionId: string; webhookStatus: string; checkoutUrl?: string | null }>(`/api/forms/${encodeURIComponent(formId)}/submissions`, { method: 'POST', body: JSON.stringify(body) });
+  return request<{ success: boolean; submissionId: string; webhookStatus: string; checkoutUrl?: string | null; signup?: { memberId: number; booked?: boolean } }>(`/api/forms/${encodeURIComponent(formId)}/submissions`, { method: 'POST', body: JSON.stringify(body) });
 };
 export const confirmPayment = (checkoutSessionId: string) => request<{ success: boolean; booking: { memberId: number; sessionId: number } }>(`/api/payments/confirm?checkout_session_id=${encodeURIComponent(checkoutSessionId)}`);
+export type MomenceSession = { id: number; name: string; startsAt: string; endsAt: string; durationInMinutes: number; capacity: number | null; bookingCount: number; spotsLeft: number | null; teacherName: string; locationName: string };
+export const getMomenceSessions = (input: { center: string; classType: string }) => request<{ sessions: MomenceSession[] }>(`/api/momence/sessions?center=${encodeURIComponent(input.center)}&classType=${encodeURIComponent(input.classType)}`);
+export const bookFreeSession = (input: { memberId: number; sessionId: number; center: string; classType: string; customerFields: Record<string, string> }) => request<{ booked: boolean; memberId: number; sessionId: number }>('/api/momence/book-free', { method: 'POST', body: JSON.stringify(input) });

@@ -7,6 +7,7 @@ import FormFill from './pages/FormFill';
 import FormSubmissions from './pages/FormSubmissions';
 import SuccessPage from './pages/SuccessPage';
 import PaymentConfirmation from './pages/PaymentConfirmation';
+import ClassSchedule from './pages/ClassSchedule';
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
         <Route path="/f/:slug" element={<FormFill />} />
         <Route path="/success" element={<SuccessPage />} />
         <Route path="/payment-confirmation" element={<PaymentConfirmation />} />
+        <Route path="/classes/:memberId" element={<ClassSchedule />} />
       </Routes>
     </BrowserRouter>
   );

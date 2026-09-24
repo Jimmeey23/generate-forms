@@ -1,8 +1,10 @@
+import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Button } from '@project/components/ui/button';
 import { CheckCircle2, Instagram, CalendarCheck } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { BRAND_LOGO, HERO_IMAGES } from '@/lib/constants';
+import confetti from 'canvas-confetti';
 
 const MOMENCE_LINKS: Record<string, { url: string; label: string }> = {
   bengaluru: { url: 'https://momence.com/u/physique-57-bengaluru-0MU0AA', label: 'Book a Class — Bengaluru' },
@@ -12,8 +14,17 @@ const MOMENCE_LINKS: Record<string, { url: string; label: string }> = {
 export default function SuccessPage() {
   const location = useLocation();
   const city: string = (location.state as any)?.city || 'mumbai';
+  const booked = Boolean((location.state as any)?.booked);
+  const session = (location.state as any)?.session;
   const momence = MOMENCE_LINKS[city] || MOMENCE_LINKS.mumbai;
   const bgImage = HERO_IMAGES[5];
+
+  useEffect(() => {
+    if (!booked) return;
+    const colors = ['#a855f7', '#06b6d4', '#f97316', '#ffffff'];
+    confetti({ particleCount: 90, angle: 60, spread: 70, origin: { x: 0, y: 0.72 }, colors });
+    confetti({ particleCount: 90, angle: 120, spread: 70, origin: { x: 1, y: 0.72 }, colors });
+  }, [booked]);
 
   return (
     <div className="min-h-screen relative overflow-hidden flex items-center justify-center">
@@ -68,7 +79,7 @@ export default function SuccessPage() {
             className="text-3xl md:text-4xl font-bold tracking-tight mb-3"
             style={{ fontFamily: "'Playfair Display', serif" }}
           >
-            You're In!
+            {booked ? "You're Booked!" : "You're In!"}
           </motion.h1>
 
           <motion.p
@@ -77,10 +88,10 @@ export default function SuccessPage() {
             transition={{ delay: 0.4 }}
             className="text-muted-foreground leading-relaxed mb-8"
           >
-            Thank you for signing up. We'll send you a confirmation with all the details shortly. Get ready to transform your body!
+            {booked ? `Your place in ${session?.name || 'the selected class'} is confirmed${session?.startsAt ? ` for ${new Date(session.startsAt).toLocaleString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' })}` : ''}.` : "Thank you for signing up. We'll send you a confirmation with all the details shortly. Get ready to transform your body!"}
           </motion.p>
 
-          <motion.div
+          {!booked && <><motion.div
             initial={{ scaleX: 0 }}
             animate={{ scaleX: 1 }}
             transition={{ delay: 0.5, duration: 0.4 }}
@@ -100,7 +111,7 @@ export default function SuccessPage() {
                 {momence.label}
               </a>
             </Button>
-          </motion.div>
+          </motion.div></>}
 
           {/* Quick links */}
           <motion.div

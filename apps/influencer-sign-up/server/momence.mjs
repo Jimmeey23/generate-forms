@@ -82,6 +82,13 @@ async function dashboard(path, init = {}, retry = true) {
   const text = await response.text(); if (!response.ok) throw new Error(`Momence dashboard request failed (${response.status}): ${text.slice(0, 300)}`);
   return text ? JSON.parse(text) : {};
 }
+async function readonly(path, retry = true) {
+  const cookies = await getDashboardCookies(!retry);
+  const response = await fetch(`https://momence.com/_api/readonly${path}`, { headers: { Accept: 'application/json', Cookie: cookies, Origin: 'https://momence.com', 'X-App': 'dashboard' } });
+  if (response.status === 401 && retry) return readonly(path, false);
+  const text = await response.text(); if (!response.ok) throw new Error(`Momence schedule request failed (${response.status}): ${text.slice(0, 300)}`);
+  return text ? JSON.parse(text) : {};
+}
 function cleanName(value) { return String(value || '').normalize('NFKC').replace(/[^\p{L}\p{M}\s]/gu, ' ').replace(/\s+/g, ' ').trim(); }
 export async function createMember(input, config) {
   const body = { firstName: cleanName(input.firstName), lastName: cleanName(input.lastName), email: String(input.email).trim(), phoneNumber: String(input.phone || '').replace(/\s/g, ''), homeLocationId: config.homeLocationId };
@@ -106,11 +113,53 @@ async function bookWithMembership(memberId, sessionId, config, membershipId) {
   if (!boughtId) throw new Error('No compatible active membership was found for this class.');
   await dashboard(`/host/${config.hostId}/auto-book/member/${memberId}/session/${sessionId}`, { method: 'POST', headers: { Referer: `https://momence.com/dashboard/${config.hostId}/sessions/${sessionId}`, 'X-Origin': `https://momence.com/dashboard/${config.hostId}/sessions/${sessionId}`, 'X-Idempotence-Key': randomUUID() }, body: JSON.stringify({ autoCheckin: false, membershipIds: [boughtId], addToWaitlist: false, isCapacityOverriden: false, isAgeRestrictionOverridden: false }) });
 }
+function matchesClassFormat(name, classType) {
+  const value = String(name || '').toLowerCase();
+  if (classType === 'powerCycle') return value.includes('cycle') || value.includes('spin');
+  if (classType === 'Strength Lab') return value.includes('strength') || value.includes('lab');
+  return value.includes('barre') && !value.includes('cardio');
+}
+export async function listSessions(center, classType, daysAhead = 30) {
+  const config = locationConfig(center); const now = new Date(); const end = new Date(Date.now() + Math.min(60, Math.max(1, daysAhead)) * 86400000);
+  let payload = [];
+  if (config.id === 287883) {
+    const params = new URLSearchParams({ sortBy: 'startsAt', sortOrder: 'ASC', dateFrom: now.toISOString(), page: '0', pageSize: '200', timeZone: 'Asia/Kolkata', grouped: 'false' });
+    params.append('locationIds[]', '287883'); params.append('locationIds[]', '36372'); params.append('status[]', 'published'); params.append('status[]', 'unpublished'); params.append('tagIds[]', '383332');
+    const result = await readonly(`/host/33905/sessions?${params}`); payload = Array.isArray(result) ? result : Array.isArray(result.payload) ? result.payload : (result.payload?.sessions || result.sessions || []);
+  } else {
+    const params = new URLSearchParams({ page: '0', pageSize: '200', sortBy: 'startsAt', sortOrder: 'ASC', locationId: String(config.id), startAfter: now.toISOString(), startBefore: end.toISOString(), includeCancelled: 'false', includeChildLocations: 'true' });
+    const result = await momence(`/host/sessions?${params}`, {}, config.account); payload = result.payload || [];
+  }
+  const excluded = ['hosted', 'physique 57', 'p57', 'studio juniors'];
+  return payload.filter((session) => !session.isCancelled && !excluded.some((term) => String(session.name || '').toLowerCase().includes(term)) && matchesClassFormat(session.name, classType)).map((session) => ({ id: session.id, name: session.name, startsAt: session.startsAt, endsAt: session.endsAt, durationInMinutes: session.durationInMinutes, capacity: session.capacity ?? null, bookingCount: session.bookingCount || 0, spotsLeft: session.capacity == null ? null : Math.max(0, session.capacity - (session.bookingCount || 0)), teacherName: session.teacher ? `${session.teacher.firstName || ''} ${session.teacher.lastName || ''}`.trim() : '', locationName: session.inPersonLocation?.name || center }));
+}
+function validateCustomerFields(values, requiresShoeSize) {
+  const requiredFields = ['emergencyContactInfo', 'medicalHistory'];
+  if (values.gender === 'Female') requiredFields.push('pregnancyStatus', 'postNatalStatus');
+  if (requiresShoeSize) requiredFields.push('euShoeSize');
+  for (const key of requiredFields) if (!String(values[key] || '').trim()) throw new Error('Required profile details are missing.');
+  const emergency = String(values.emergencyContactInfo || '').replace(/\D/g, '');
+  if (!/^[0-9]{7,15}$/.test(emergency)) throw new Error('Emergency Contact Info must be a phone number.');
+}
+async function saveCustomerFields(memberId, values) {
+  const ids = { fitnessGoal: 8149, emergencyContactInfo: 8251, pregnancyStatus: 8252, medicalHistory: 8253, postNatalStatus: 8254, fnf: 8401, gender: 16549, euShoeSize: 17139, howDidHear: 19050 };
+  const mapped = {}; for (const [key, id] of Object.entries(ids)) { let value = String(values[key] || '').trim(); if (key === 'emergencyContactInfo') value = value.replace(/\D/g, ''); if (value) mapped[String(id)] = value; }
+  await dashboard('/host/13752/customer-fields/data', { method: 'POST', body: JSON.stringify({ memberId, values: mapped }) });
+}
+export async function completeFreeBooking({ memberId, sessionId, center, classType, customerFields }) {
+  const config = locationConfig(center); const requiresShoeSize = /cycle|spin/i.test(classType || '');
+  validateCustomerFields(customerFields || {}, requiresShoeSize);
+  await saveCustomerFields(Number(memberId), customerFields || {});
+  const plan = config.account === 'mumbai' ? MEMBERSHIPS.mumbai : MEMBERSHIPS[config.id];
+  if (config.account === 'mumbai') await bookWithMembership(Number(memberId), Number(sessionId), config, plan.free);
+  else await momence(`/host/sessions/${Number(sessionId)}/bookings/free`, { method: 'POST', body: JSON.stringify({ memberId: Number(memberId) }) }, config.account);
+  return { booked: true, memberId: Number(memberId), sessionId: Number(sessionId) };
+}
 export async function signupAdult(input, form) {
   const config = locationConfig(form.targetStudio || input.center); const created = await createMember(input, config); await signWaivers(created.memberId, input.signatureRealSignature, config);
   const plan = config.account === 'mumbai' ? MEMBERSHIPS.mumbai : MEMBERSHIPS[config.id];
   if (form.signupType === 'free') { if (config.account === 'mumbai') await grantMembership(created.memberId, config, plan.free, false); if (form.sessionId) { if (config.account === 'mumbai') await bookWithMembership(created.memberId, Number(form.sessionId), config, plan.free); else await momence(`/host/sessions/${Number(form.sessionId)}/bookings/free`, { method: 'POST', body: JSON.stringify({ memberId: created.memberId }) }, config.account); } }
-  return { memberId: created.memberId, config, plan, paymentRequired: form.signupType === 'paid' };
+  return { memberId: created.memberId, config, plan, paymentRequired: form.signupType === 'paid', booked: form.signupType === 'free' && Boolean(form.sessionId) };
 }
 function splitChild(name, parentLastName) { const parts = cleanName(name).split(' ').filter(Boolean); return { firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || cleanName(parentLastName) }; }
 export async function signupKid(input, form) {

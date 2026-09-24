@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
-import { createPaidCheckout, fulfillCheckout, handleStripeWebhook, signupAdult, signupKid } from './momence.mjs';
+import { completeFreeBooking, createPaidCheckout, fulfillCheckout, handleStripeWebhook, listSessions, signupAdult, signupKid } from './momence.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
@@ -239,10 +239,6 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   if (countError) console.error('Submission saved, but count update failed:', countError.message);
   const rawCenter = String(responses.center || '').trim();
   const operationalForm = { id: form.id, slug: form.slug, signupType: formData.signupType || 'free', targetStudio: formData.targetStudio || rawCenter, sessionId: formData.sessionId || '' };
-  // Adult flow follows the reference order: member -> waivers -> membership/booking -> lead.
-  // Juniors captures the lead even when account provisioning later needs studio follow-up.
-  let signup = null;
-  if (operationalForm.signupType !== 'kids') signup = await signupAdult(responses, operationalForm);
   const config = CENTER_CONFIG[rawCenter.toLowerCase()] || CENTER_CONFIG[FALLBACK_CENTER.toLowerCase()];
   let webhookStatus = 'NOT_CONFIGURED';
   if (config.hostId && config.token && config.sourceId) {
@@ -258,7 +254,9 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
       if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
     }
   }
-  if (operationalForm.signupType === 'kids') signup = await signupKid(responses, operationalForm);
+  // The lead is recorded first so the studio can follow up even if later Momence profile,
+  // waiver, membership, or booking operations need manual recovery.
+  const signup = operationalForm.signupType === 'kids' ? await signupKid(responses, operationalForm) : await signupAdult(responses, operationalForm);
   let checkoutUrl = null;
   if (signup.paymentRequired) checkoutUrl = await createPaidCheckout({ memberId: signup.memberId, form: operationalForm, origin: (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '') });
   res.status(201).json({ success: true, submissionId: submission.id, webhookStatus, signup, checkoutUrl });
@@ -268,6 +266,18 @@ app.get('/api/payments/confirm', asyncRoute(async (req, res) => {
   const checkoutSessionId = String(req.query.checkout_session_id || '').trim();
   if (!checkoutSessionId) return res.status(400).json({ error: 'checkout_session_id is required' });
   res.json({ success: true, booking: await fulfillCheckout(checkoutSessionId) });
+}));
+
+app.get('/api/momence/sessions', asyncRoute(async (req, res) => {
+  const center = String(req.query.center || '').trim();
+  const classType = String(req.query.classType || 'Barre').trim();
+  res.json({ sessions: await listSessions(center, classType, Number(req.query.daysAhead || 30)) });
+}));
+
+app.post('/api/momence/book-free', asyncRoute(async (req, res) => {
+  const { memberId, sessionId, center, classType, customerFields } = req.body || {};
+  if (!Number(memberId) || !Number(sessionId)) return res.status(400).json({ error: 'memberId and sessionId are required' });
+  res.json(await completeFreeBooking({ memberId, sessionId, center, classType, customerFields }));
 }));
 
 const distPath = path.resolve(__dirname, '../dist');

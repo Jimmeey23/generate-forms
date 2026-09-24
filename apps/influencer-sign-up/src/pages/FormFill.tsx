@@ -57,6 +57,11 @@ export default function FormFill() {
         window.location.assign(result.checkoutUrl);
         return;
       }
+      if (form.signupType === 'free' && !form.sessionId && result.signup?.memberId) {
+        const query = new URLSearchParams({ center: form.targetStudio || responses.center, classType: responses.classType || 'Barre' });
+        navigate(`/classes/${result.signup.memberId}?${query}`);
+        return;
+      }
       const center = (responses.center || '').toString().toLowerCase();
       const city = center.includes('bengaluru') || center.includes('copper') || center.includes('kenkere')
         ? 'bengaluru' : 'mumbai';
