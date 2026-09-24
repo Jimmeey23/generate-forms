@@ -5,7 +5,7 @@ import { getForm, submitForm, GetFormOutputType } from '@/lib/api';
 import { toast } from 'sonner';
 import FormRenderer from '@/components/FormRenderer';
 import { setFormMetaTags, resetMetaTags } from '@/lib/setMetaTags';
-import { captureAttribution, startFunnel, trackFunnelEvent } from '@/lib/tracking';
+import { captureAttribution } from '@/lib/attribution';
 import { cityFor, saveSignupDetails } from '@/lib/signupDetails';
 
 type FormData = NonNullable<GetFormOutputType['form']>;
@@ -50,11 +50,7 @@ export default function FormFill() {
     setSubmitting(true);
     const center = String(form.targetStudio || responses.center || '');
     const classType = String(responses.classType || form.classFormats?.[0] || '');
-    const { fbp: _fbp, fbc: _fbc, ...attribution } = captureAttribution(cityFor(center) === 'bengaluru');
-    startFunnel(
-      { email: responses.email, phone: responses.phone, firstName: responses.firstName, lastName: responses.lastName },
-      { form_id: form.id, form_title: form.title, center, class_type: classType, signup_type: form.signupType, utm_source: attribution.utmSource, utm_campaign: attribution.utmCampaign, ab_variant: attribution.abVariant },
-    );
+    const attribution = captureAttribution(cityFor(center) === 'bengaluru');
     try {
       const result = await submitForm({
         formId: form.id,
@@ -64,18 +60,14 @@ export default function FormFill() {
         utmCampaign: form.utmCampaign || '',
         attribution,
       });
-      // The server stores the lead and signs the waivers before replying, so these stages are confirmed here.
-      await trackFunnelEvent('lead');
-      await trackFunnelEvent('waiver');
-      if (result.signup?.memberId) await trackFunnelEvent('signup', { member_id: result.signup.memberId });
       const booked = Boolean(result.signup?.booked);
-      if (booked) await trackFunnelEvent('classBooked', { session_id: form.sessionId });
       saveSignupDetails({ firstName: String(responses.firstName || ''), center, classType, signupType: form.signupType, formTitle: form.title, childName: responses.childName, booked });
       if (result.checkoutUrl) {
         window.location.assign(result.checkoutUrl);
         return;
       }
-      if (form.signupType === 'free' && !form.sessionId && result.signup?.memberId) {
+      // Guests not auto-booked (no class, or the class is at another studio) choose one now.
+      if (form.signupType !== 'kids' && !booked && result.signup?.memberId) {
         const query = new URLSearchParams({ center, classType: classType || 'Barre' });
         if (form.classFormats?.length) query.set('format', form.classFormats.join(','));
         navigate(`/classes/${result.signup.memberId}?${query}`);

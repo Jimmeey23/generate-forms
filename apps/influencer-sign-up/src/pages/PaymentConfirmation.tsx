@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import { confirmPayment } from '@/lib/api';
-import { trackFunnelEvent } from '@/lib/tracking';
 import { updateSignupDetails } from '@/lib/signupDetails';
 
 export default function PaymentConfirmation() {
@@ -13,8 +12,7 @@ export default function PaymentConfirmation() {
   useEffect(() => {
     if (!sessionId) { setState('error'); setMessage('The checkout confirmation is missing.'); return; }
     confirmPayment(sessionId)
-      .then(async ({ booking }) => {
-        await trackFunnelEvent('classBooked', { session_id: booking.sessionId, paid: true });
+      .then(() => {
         updateSignupDetails({ booked: true, paid: true });
         navigate('/success', { replace: true });
       })

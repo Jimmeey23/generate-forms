@@ -5,10 +5,8 @@ import App from "./App";
 import { ErrorBoundary } from 'react-error-boundary';
 import { HammerIcon } from 'lucide-react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { initializeTracking } from './lib/tracking';
 
 const queryClient = new QueryClient();
-initializeTracking();
 
 function reloadApp() {
   if (window._ziteOnReload) {

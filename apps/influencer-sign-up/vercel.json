@@ -7,6 +7,8 @@
     { "source": "/dashboard", "destination": "/index.html" },
     { "source": "/form/:path*", "destination": "/index.html" },
     { "source": "/f/:path*", "destination": "/index.html" },
-    { "source": "/success", "destination": "/index.html" }
+    { "source": "/success", "destination": "/index.html" },
+    { "source": "/payment-confirmation", "destination": "/index.html" },
+    { "source": "/classes/:path*", "destination": "/index.html" }
   ]
 }

@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@project/components/ui/button';
 import { Input } from '@project/components/ui/input';
 import { Label } from '@project/components/ui/label';
-import { Loader2, ArrowRight, Sparkles, Zap, Share2, BarChart3, ChevronLeft, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle, AlertCircle } from 'lucide-react';
+import { Loader2, ArrowRight, Sparkles, Zap, Share2, BarChart3, ChevronLeft, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle } from 'lucide-react';
 import { generateForm, getMomenceSessions, type MomenceSession } from '@/lib/api';
 import { toast } from 'sonner';
-import { BRAND_LOGO, HERO_IMAGES } from '@/lib/constants';
+import { BRAND_LOGO_DARK, HERO_IMAGES } from '@/lib/constants';
 import { motion, AnimatePresence, MotionConfig, type Variants } from 'framer-motion';
 
 type SignupType = 'kids' | 'free' | 'paid';
@@ -35,8 +35,11 @@ const CLASS_FORMATS: { value: ClassFormat; desc: string; images: number[] }[] = 
 const formatsForStudio = (studio: string): ClassFormat[] => (/bengaluru/i.test(studio) ? ['Barre'] : CLASS_FORMATS.map((f) => f.value));
 const toggle = <T,>(list: T[], value: T) => (list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
 const IST = { timeZone: 'Asia/Kolkata' } as const;
-const sessionDay = (session: MomenceSession) => new Date(session.startsAt).toLocaleDateString('en-IN', { ...IST, weekday: 'short', day: 'numeric', month: 'short' });
-const sessionTime = (session: MomenceSession) => new Date(session.startsAt).toLocaleTimeString('en-IN', { ...IST, hour: 'numeric', minute: '2-digit' });
+type StudioSession = MomenceSession & { studio: string };
+const shortStudio = (studio: string) => studio.split(',')[0];
+const sessionKey = (session: StudioSession) => `${session.studio}|${session.id}`;
+const sessionDay = (session: StudioSession) => new Date(session.startsAt).toLocaleDateString('en-IN', { ...IST, weekday: 'short', day: 'numeric', month: 'short' });
+const sessionTime = (session: StudioSession) => new Date(session.startsAt).toLocaleTimeString('en-IN', { ...IST, hour: 'numeric', minute: '2-digit' });
 const istParts = (iso: string) => {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { ...IST, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(iso)).map((part) => [part.type, part.value]));
   return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
@@ -58,8 +61,11 @@ export default function LandingPage() {
   const [signupType, setSignupType] = useState<SignupType>('free');
   const [studios, setStudios] = useState<string[]>(['Kwality House, Kemps Corner']);
   const [formats, setFormats] = useState<ClassFormat[]>([]);
-  const [sessionId, setSessionId] = useState('');
-  const [sessions, setSessions] = useState<MomenceSession[]>([]);
+  // Selected class as `${studio}|${sessionId}`; Momence classes belong to one studio.
+  const [selectedKey, setSelectedKey] = useState('');
+  const [manualId, setManualId] = useState('');
+  const [manualStudio, setManualStudio] = useState('');
+  const [sessions, setSessions] = useState<StudioSession[]>([]);
   const [sessionsState, setSessionsState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -68,33 +74,36 @@ export default function LandingPage() {
   const effectiveFormats = useMemo(() => (signupType === 'kids' ? [] : availableFormats.filter((format) => formats.includes(format))), [signupType, formats, availableFormats]);
   const formatKey = effectiveFormats.join(',');
   const carouselImages = useMemo(() => effectiveFormats.length ? CLASS_FORMATS.filter((f) => effectiveFormats.includes(f.value)).flatMap((f) => f.images).map((index) => HERO_IMAGES[index]) : HERO_IMAGES, [formatKey]);
-  // A Momence class belongs to exactly one studio, so pre-booking needs a single studio.
-  const singleStudio = studios.length === 1 ? studios[0] : '';
+  const studioKey = studios.join('|');
 
+  // Every format at every selected studio, so organisers can pre-book any class on offer.
   useEffect(() => {
-    setSessions([]);
-    if (!singleStudio) { setSessionsState('idle'); setSessionId(''); return; }
     let cancelled = false;
+    setSessions([]);
     setSessionsState('loading');
-    const wanted = effectiveFormats.length ? effectiveFormats : formatsForStudio(singleStudio);
-    Promise.all(wanted.map((classType) => getMomenceSessions({ center: singleStudio, classType })))
+    const requests = studios.flatMap((studio) => formatsForStudio(studio).map((classType) =>
+      getMomenceSessions({ center: studio, classType }).then(({ sessions }) => sessions.map((session) => ({ ...session, studio })))));
+    Promise.all(requests)
       .then((results) => {
         if (cancelled) return;
-        const merged = [...new Map(results.flatMap((result) => result.sessions).map((session) => [session.id, session])).values()]
+        const merged = [...new Map(results.flat().map((session) => [sessionKey(session), session])).values()]
           .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
         setSessions(merged);
         setSessionsState('ready');
-        setSessionId((current) => (merged.some((session) => String(session.id) === current) ? current : ''));
+        setSelectedKey((current) => (merged.some((session) => sessionKey(session) === current) ? current : ''));
       })
       .catch(() => { if (!cancelled) setSessionsState('error'); });
     return () => { cancelled = true; };
-  }, [singleStudio, formatKey]);
+  }, [studioKey]);
 
-  const sessionsByDay = useMemo(() => sessions.reduce<Record<string, MomenceSession[]>>((days, session) => { (days[sessionDay(session)] ||= []).push(session); return days; }, {}), [sessions]);
-  const selectedSession = sessions.find((session) => String(session.id) === sessionId);
-  const chooseSession = (id: string) => {
-    setSessionId(id);
-    const session = sessions.find((item) => String(item.id) === id);
+  const sessionsByDay = useMemo(() => sessions.reduce<Record<string, StudioSession[]>>((days, session) => { (days[sessionDay(session)] ||= []).push(session); return days; }, {}), [sessions]);
+  const selectedSession = sessions.find((session) => sessionKey(session) === selectedKey);
+  const manualBooking = sessionsState === 'error';
+  const sessionId = manualBooking ? manualId : selectedSession ? String(selectedSession.id) : '';
+  const sessionStudio = manualBooking ? (studios.includes(manualStudio) ? manualStudio : studios[0]) : selectedSession?.studio || '';
+  const chooseSession = (key: string) => {
+    setSelectedKey(key);
+    const session = sessions.find((item) => sessionKey(item) === key);
     // Pre-fill the event schedule from the class unless the organiser already set one.
     if (session && !eventDate && !eventTime) { const { date, time } = istParts(session.startsAt); setEventDate(date); setEventTime(time); }
   };
@@ -102,7 +111,7 @@ export default function LandingPage() {
   const cities = STUDIOS_BY_CITY.filter((group) => group.studios.some((studio) => studios.includes(studio))).map((group) => group.city);
   const studioSummary = studios.length === ALL_STUDIOS.length ? 'All studios' : studios.length === 1 ? studios[0] : `${studios.length} studios`;
   const flow = SIGNUP_FLOWS.find((option) => option.value === signupType)!;
-  const paidReady = signupType !== 'paid' || (Boolean(singleStudio) && /^\d+$/.test(sessionId));
+  const paidReady = signupType !== 'paid' || /^\d+$/.test(sessionId);
   const canGenerate = Boolean(influencer.trim() || eventTitle.trim()) && studios.length > 0 && paidReady;
 
   const handleGenerate = async () => {
@@ -114,10 +123,10 @@ export default function LandingPage() {
     try {
       const prompt = [influencer.trim() && `Influencer/Partner: ${influencer.trim()}`, eventTitle.trim() && `Event: ${eventTitle.trim()}`].filter(Boolean).join(' | ');
       if (!paidReady) {
-        toast.error('Paid signups need a single studio and a Momence class');
+        toast.error('Paid signups need a Momence class');
         return;
       }
-      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId: singleStudio ? sessionId : '', classFormats: effectiveFormats, eventDate, eventTime, eventVenue: eventVenue.trim() });
+      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId, sessionStudio: sessionId ? sessionStudio : '', classFormats: effectiveFormats, eventDate, eventTime, eventVenue: eventVenue.trim() });
       toast.success('Form created!');
       navigate(`/form/${form.id}/preview`);
     } catch (error) {
@@ -147,7 +156,7 @@ export default function LandingPage() {
       <nav className="relative z-50 border-b border-border/30 bg-background/80 backdrop-blur-md">
         <div className="container mx-auto h-16 flex items-center justify-between px-4">
           <motion.div className="flex items-center gap-3" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}>
-            <img src={BRAND_LOGO} alt="Physique 57" className="h-7 brightness-0 invert" />
+            <img src={BRAND_LOGO_DARK} alt="Physique 57" className="h-10 w-auto" />
             <div className="h-5 w-px bg-border/50" />
             <span className="text-xs font-medium tracking-wider uppercase text-muted-foreground">Lead Capture</span>
           </motion.div>
@@ -283,47 +292,51 @@ export default function LandingPage() {
                 </FormSection>
 
                 <FormSection step="05" title="Class booking" hint={signupType === 'paid' ? 'Required for paid signups' : 'Optional auto-booking'}>
-                  {!singleStudio ? (
-                    <Notice>
-                      {signupType === 'paid'
-                        ? 'Paid signups book one specific class, so select a single studio above.'
-                        : 'Pre-booking a class needs a single studio. With several studios, guests pick their class after signing up.'}
-                    </Notice>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                      <div>
-                        <Label htmlFor="momence-class" className={labelClass}>Momence class {signupType === 'paid' ? '*' : '(optional)'}</Label>
-                        {sessionsState === 'error' ? (
-                          <Input id="momence-class" inputMode="numeric" value={sessionId} onChange={(e) => setSessionId(e.target.value.replace(/\D/g, ''))}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                    <div>
+                      <Label htmlFor="momence-class" className={labelClass}>Momence class {signupType === 'paid' ? '*' : '(optional)'}</Label>
+                      {manualBooking ? (
+                        <div className="flex gap-2">
+                          <Input id="momence-class" inputMode="numeric" value={manualId} onChange={(e) => setManualId(e.target.value.replace(/\D/g, ''))}
                             placeholder="Couldn't load classes · enter session ID" className={fieldClass} />
-                        ) : (
-                          <div className="relative">
-                            <select id="momence-class" value={sessionId} onChange={(e) => chooseSession(e.target.value)} disabled={sessionsState === 'loading'}
-                              className={`${fieldClass} w-full rounded-md border px-3 pr-9 appearance-none [color-scheme:dark] disabled:opacity-60`}>
-                              <option value="">{sessionsState === 'loading' ? 'Loading classes from Momence…' : sessions.length ? (signupType === 'paid' ? 'Select a class' : 'No pre-booking · guest picks later') : 'No upcoming classes found'}</option>
-                              {Object.entries(sessionsByDay).map(([day, items]) => (
-                                <optgroup key={day} label={day}>
-                                  {items.map((session) => (
-                                    <option key={session.id} value={session.id} disabled={session.spotsLeft === 0}>
-                                      {sessionTime(session)} · {session.name}{session.teacherName ? ` · ${session.teacherName}` : ''}{session.spotsLeft != null ? ` · ${session.spotsLeft === 0 ? 'Full' : `${session.spotsLeft} left`}` : ''}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              ))}
+                          {studios.length > 1 && (
+                            <select aria-label="Studio for this class" value={sessionStudio} onChange={(e) => setManualStudio(e.target.value)}
+                              className={`${fieldClass} w-40 shrink-0 rounded-md border px-2 [color-scheme:dark]`}>
+                              {studios.map((studio) => <option key={studio} value={studio}>{shortStudio(studio)}</option>)}
                             </select>
-                            {sessionsState === 'loading'
-                              ? <Loader2 className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
-                              : <ChevronRight className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rotate-90 text-muted-foreground" />}
-                          </div>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground leading-relaxed md:pt-7">
-                        {sessionsState === 'error'
-                          ? 'Momence classes could not be loaded right now. You can still paste a session ID.'
-                          : `Showing the next 30 days of ${effectiveFormats.length ? effectiveFormats.join(' / ') : 'all'} classes at ${singleStudio}. Guests are auto-booked into the chosen class after signup.`}
-                      </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="relative">
+                          <select id="momence-class" value={selectedKey} onChange={(e) => chooseSession(e.target.value)} disabled={sessionsState === 'loading'}
+                            className={`${fieldClass} w-full rounded-md border px-3 pr-9 appearance-none [color-scheme:dark] disabled:opacity-60`}>
+                            <option value="">{sessionsState === 'loading' ? 'Loading classes from Momence…' : sessions.length ? (signupType === 'paid' ? 'Select a class' : 'No pre-booking · guest picks later') : 'No upcoming classes found'}</option>
+                            {Object.entries(sessionsByDay).map(([day, items]) => (
+                              <optgroup key={day} label={day}>
+                                {items.map((session) => (
+                                  <option key={sessionKey(session)} value={sessionKey(session)} disabled={session.spotsLeft === 0}>
+                                    {sessionTime(session)} · {session.name}{studios.length > 1 ? ` · ${shortStudio(session.studio)}` : ''}{session.teacherName ? ` · ${session.teacherName}` : ''}{session.spotsLeft != null ? ` · ${session.spotsLeft === 0 ? 'Full' : `${session.spotsLeft} left`}` : ''}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            ))}
+                          </select>
+                          {sessionsState === 'loading'
+                            ? <Loader2 className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+                            : <ChevronRight className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rotate-90 text-muted-foreground" />}
+                        </div>
+                      )}
                     </div>
-                  )}
+                    <p className="text-xs text-muted-foreground leading-relaxed md:pt-7">
+                      {manualBooking
+                        ? 'Momence classes could not be loaded right now. You can still paste a session ID.'
+                        : `Next 30 days of every class format at ${studios.length > 1 ? `all ${studios.length} selected studios` : studios[0]}.`}
+                      {' '}
+                      {studios.length > 1
+                        ? 'Guests who choose this class’s studio are auto-booked into it; guests at the other studios pick a class after signing up.'
+                        : 'Guests are auto-booked into the chosen class after signup.'}
+                    </p>
+                  </div>
                 </FormSection>
               </motion.div>
             </motion.section>
@@ -446,15 +459,6 @@ function SelectAll({ allSelected, onToggle, clearLabel = 'Clear' }: { allSelecte
       className="text-[11px] font-semibold uppercase tracking-wider text-purple-400 hover:text-purple-300 transition-colors">
       {allSelected ? clearLabel : 'Select all'}
     </button>
-  );
-}
-
-function Notice({ children }: { children: React.ReactNode }) {
-  return (
-    <motion.p initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-      className="flex items-start gap-2.5 rounded-xl border border-border/40 bg-muted/20 px-4 py-3 text-xs text-muted-foreground leading-relaxed">
-      <AlertCircle className="w-4 h-4 shrink-0 text-purple-400" /> {children}
-    </motion.p>
   );
 }
 

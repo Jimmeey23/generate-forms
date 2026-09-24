@@ -11,7 +11,7 @@ import {
   Sun, Moon, Dumbbell, Bike, Users, UserCheck, Zap, Flame, Award,
 } from 'lucide-react';
 import { getTheme } from '@/lib/colors';
-import { BRAND_LOGO } from '@/lib/constants';
+import { BRAND_LOGO, BRAND_LOGO_DARK, isBrandLogo } from '@/lib/constants';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import SignaturePad from './SignaturePad';
@@ -180,19 +180,25 @@ function heroPos(form: FormDataType): string {
 function BrandLogo({ onDarkBg = true, size = 'md', position = 'center', invert, logoUrl }: { onDarkBg?: boolean; size?: string; position?: string; invert?: boolean; logoUrl?: string }) {
   const sizeMap: Record<string, string> = { xs: 'h-6 md:h-7', sm: 'h-8 md:h-9', md: 'h-10 md:h-12', lg: 'h-16 md:h-20', xl: 'h-20 md:h-24' };
   const sizeClass = sizeMap[size] || sizeMap.md;
-  const shouldInvert = invert !== undefined ? invert : onDarkBg;
+  const { dark } = useFormTheme();
+  const brand = isBrandLogo(logoUrl);
+  // The Physique 57 logo has a dedicated dark-mode file, so it follows the form theme; custom logos keep the invert option.
+  const shouldInvert = !brand && (invert !== undefined ? invert : onDarkBg);
+  const src = brand ? (dark ? BRAND_LOGO_DARK : BRAND_LOGO) : logoUrl;
   const alignClass = position === 'left' ? 'justify-start' : position === 'right' ? 'justify-end' : 'justify-center';
   return (
     <motion.div className={`flex ${alignClass}`}
       initial={{ opacity: 0, y: -20, scale: 0.85 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}>
-      <motion.img src={logoUrl || BRAND_LOGO} alt="Physique 57"
-        className={`${sizeClass} drop-shadow-2xl ${shouldInvert ? 'brightness-0 invert' : ''}`}
+      <motion.img src={src} alt="Physique 57"
+        className={`${sizeClass} w-auto drop-shadow-2xl ${shouldInvert ? 'brightness-0 invert' : ''}`}
         animate={{
           filter: shouldInvert
             ? ['brightness(0) invert(1) drop-shadow(0 0 12px rgba(255,255,255,0.3))', 'brightness(0) invert(1) drop-shadow(0 0 20px rgba(255,255,255,0.5))', 'brightness(0) invert(1) drop-shadow(0 0 12px rgba(255,255,255,0.3))']
-            : ['drop-shadow(0 0 8px rgba(0,0,0,0.1))', 'drop-shadow(0 0 16px rgba(0,0,0,0.2))', 'drop-shadow(0 0 8px rgba(0,0,0,0.1))'],
+            : brand && dark
+              ? ['drop-shadow(0 0 10px rgba(110,207,244,0.25))', 'drop-shadow(0 0 18px rgba(110,207,244,0.4))', 'drop-shadow(0 0 10px rgba(110,207,244,0.25))']
+              : ['drop-shadow(0 0 8px rgba(0,0,0,0.1))', 'drop-shadow(0 0 16px rgba(0,0,0,0.2))', 'drop-shadow(0 0 8px rgba(0,0,0,0.1))'],
         }}
         transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
       />

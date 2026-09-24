@@ -6,7 +6,6 @@ import { readFile } from 'node:fs/promises';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
 import { createPaidCheckout, fulfillCheckout, handleStripeWebhook, listSessions, selectClassAndContinue, signupAdult, signupKid } from './momence.mjs';
-import { sendMetaCapi } from './meta-capi.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
@@ -31,11 +30,6 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
   res.json(await handleStripeWebhook(req.body, signature));
 }));
 app.use(express.json({ limit: '1mb' }));
-app.post('/api/tracking/meta-capi', asyncRoute(async (req, res) => {
-  const allowed = new Set(['Lead', 'WaiverSigned', 'CompleteRegistration', 'ClassBooked']);
-  if (!allowed.has(req.body?.eventName) || !String(req.body?.eventId || '').trim()) return res.status(400).json({ error: 'Invalid tracking event' });
-  res.json({ success: true, ...(await sendMetaCapi({ ...req.body, request: req })) });
-}));
 
 const HERO_IMAGES = [
   'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/s9wMadXfeYFPAp7MyaEAgr/pasted-image-1782902048664-tp5ozxot.jpg',
@@ -160,7 +154,7 @@ function publicForm(record, req) {
     metadataDescription: data.metadataDescription || record.description || '', formWidth: data.formWidth || 480, formMinHeight: data.formMinHeight || 0,
     formBorderRadius: data.formBorderRadius ?? 16, formPadding: data.formPadding ?? 40, boldLabels: data.boldLabels || false,
     signupType: data.signupType || 'free', targetStudio: data.targetStudio || '', sessionId: data.sessionId || '', classFormat: data.classFormat || '',
-    targetStudios: data.targetStudios || (data.targetStudio ? [data.targetStudio] : []), classFormats: data.classFormats || (data.classFormat ? [data.classFormat] : []),
+    targetStudios: data.targetStudios || (data.targetStudio ? [data.targetStudio] : []), sessionStudio: data.sessionStudio || data.targetStudio || '', classFormats: data.classFormats || (data.classFormat ? [data.classFormat] : []),
     eventDate: data.eventDate || '', eventTime: data.eventTime || '', eventVenue: data.eventVenue || '',
   };
 }
@@ -184,8 +178,11 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   // A single studio pins Momence routing and booking; with several, the guest's choice in the form decides.
   const targetStudio = targetStudios.length === 1 ? targetStudios[0] : '';
   const sessionId = String(req.body.sessionId || '').trim();
-  if (sessionId && !targetStudio) return res.status(400).json({ error: 'A Momence class can only be pre-selected when one studio is chosen.' });
-  if (signupType === 'paid' && !/^\d+$/.test(sessionId)) return res.status(400).json({ error: 'Paid signup forms require a single studio and a Momence class.' });
+  if (sessionId && !/^\d+$/.test(sessionId)) return res.status(400).json({ error: 'Invalid Momence session ID.' });
+  if (signupType === 'paid' && !sessionId) return res.status(400).json({ error: 'Paid signup forms require a Momence class.' });
+  // The pre-selected class's studio; only guests who choose that studio are auto-booked into it.
+  const sessionStudio = sessionId ? String(req.body.sessionStudio || targetStudio).trim() : '';
+  if (sessionId && !targetStudios.includes(sessionStudio)) return res.status(400).json({ error: 'The selected class must be at one of the chosen studios.' });
   const requestedFormats = (Array.isArray(req.body.classFormats) ? req.body.classFormats : [req.body.classFormat]).map((value) => String(value || '').trim()).filter(Boolean);
   const offeredFormats = [...new Set(targetStudios.flatMap(getClassOptions))];
   const unavailable = requestedFormats.find((format) => !CLASS_FORMATS.includes(format) || !offeredFormats.includes(format));
@@ -208,7 +205,7 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const description = details || `Join ${experienceName}${peopleCopy}${logistics ? ` ${logistics}` : ''} for a ${experienceKind} experience designed to move, challenge, and connect.`;
   const metadataDescription = `${experienceName}${peopleCopy} — reserve your place for this ${experienceKind} experience.`;
   const heroPool = classFormats.length ? classFormats.flatMap((format) => FORMAT_HERO_INDEXES[format]).map((index) => HERO_IMAGES[index]) : HERO_IMAGES;
-  const formData = { fields: fieldsForSignupType(signupType, targetStudios, classFormats), signupType, targetStudio, targetStudios, sessionId, classFormat, classFormats, eventDate, eventTime, eventVenue, layout: 'stacked', heroImage: heroPool[(seed >>> 4) % heroPool.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: ACCENT_COLORS[(seed >>> 22) % ACCENT_COLORS.length], formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: influencerSlug, utmChannel: `${prompt.toLowerCase().includes('instagram') ? 'social' : 'influencer'}_${influencerSlug}`, utmCampaign: influencerSlug, hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
+  const formData = { fields: fieldsForSignupType(signupType, targetStudios, classFormats), signupType, targetStudio, targetStudios, sessionId, sessionStudio, classFormat, classFormats, eventDate, eventTime, eventVenue, layout: 'stacked', heroImage: heroPool[(seed >>> 4) % heroPool.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: ACCENT_COLORS[(seed >>> 22) % ACCENT_COLORS.length], formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: influencerSlug, utmChannel: `${prompt.toLowerCase().includes('instagram') ? 'social' : 'influencer'}_${influencerSlug}`, utmCampaign: influencerSlug, hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
   const slug = await createUniqueSlug(eventName || influencerName || campaignName);
   const { data, error } = await supabase.from('forms').insert({ title, description, slug, form_data: formData, theme_color: 'midnight', status: 'Draft', creator_email: req.body.creatorEmail || '' }).select().single();
   if (error) throw error;
@@ -322,7 +319,10 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   if (error) throw error;
   const { error: countError } = await supabase.rpc('increment_form_submission_count', { target_form_id: req.params.id });
   if (countError) console.error('Submission saved, but count update failed:', countError.message);
-  const operationalForm = { id: form.id, slug: form.slug, signupType: formData.signupType || 'free', targetStudio: formData.targetStudio || rawCenter, sessionId: formData.sessionId || '' };
+  // Legacy single-studio forms have no sessionStudio; their class is at targetStudio.
+  const sessionStudio = formData.sessionStudio || formData.targetStudio || '';
+  const sessionId = formData.sessionId && (!sessionStudio || sessionStudio === rawCenter) ? formData.sessionId : '';
+  const operationalForm = { id: form.id, slug: form.slug, signupType: formData.signupType || 'free', targetStudio: formData.targetStudio || rawCenter, sessionId };
   const sourceId = leadSourceId(centerKey, config.city, operationalForm.signupType);
   let webhookStatus = 'NOT_CONFIGURED';
   if (config.hostId && config.token && sourceId) {

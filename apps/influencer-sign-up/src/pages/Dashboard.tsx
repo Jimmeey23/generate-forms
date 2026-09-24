@@ -11,7 +11,7 @@ import { Plus, Eye, Share2, Trash2, BarChart3, ArrowLeft, Copy, Check, Sparkles 
 import { getForms, deleteForm, updateForm, GetFormsOutputType } from '@/lib/api';
 import { toast } from 'sonner';
 import { getTheme } from '@/lib/colors';
-import { BRAND_LOGO } from '@/lib/constants';
+import { BRAND_LOGO_DARK } from '@/lib/constants';
 import { format } from 'date-fns';
 import { motion } from 'framer-motion';
 
@@ -57,7 +57,7 @@ export default function Dashboard() {
             <Button variant="ghost" size="icon" onClick={() => navigate('/')}>
               <ArrowLeft className="w-4 h-4" />
             </Button>
-            <img src={BRAND_LOGO} alt="Physique 57" className="h-8 brightness-0 invert" />
+            <img src={BRAND_LOGO_DARK} alt="Physique 57" className="h-10 w-auto" />
             <div className="h-5 w-px bg-border/50" />
             <span className="font-semibold text-lg">My Forms</span>
           </div>

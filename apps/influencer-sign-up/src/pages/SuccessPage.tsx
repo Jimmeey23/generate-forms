@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { Button } from '@project/components/ui/button';
 import { CheckCircle2, Instagram, CalendarCheck, MapPin, Dumbbell, Clock3, UserRound } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { BRAND_LOGO, HERO_IMAGES } from '@/lib/constants';
+import { BRAND_LOGO_DARK, HERO_IMAGES } from '@/lib/constants';
 import { cityFor, loadSignupDetails } from '@/lib/signupDetails';
 import confetti from 'canvas-confetti';
 
@@ -70,9 +70,9 @@ export default function SuccessPage() {
           className="bg-card/95 backdrop-blur-md rounded-3xl shadow-2xl p-8 md:p-12 text-center border border-border/50"
         >
           <motion.img
-            src={BRAND_LOGO}
+            src={BRAND_LOGO_DARK}
             alt="Physique 57"
-            className="h-12 mx-auto mb-8 brightness-0 invert"
+            className="h-12 mx-auto mb-8"
             initial={{ opacity: 0, scale: 0.7, rotateY: -90 }}
             animate={{ opacity: 1, scale: 1, rotateY: 0 }}
             transition={{ type: 'spring', stiffness: 120, damping: 14 }}
