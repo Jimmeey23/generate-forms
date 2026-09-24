@@ -90,12 +90,12 @@ export function initializeTracking() {
   if (pixel && !win.fbq) {
     const fbq: any = (...args: any[]) => fbq.callMethod ? fbq.callMethod(...args) : fbq.queue.push(args);
     fbq.queue = []; fbq.loaded = true; fbq.version = '2.0'; fbq.push = fbq; win.fbq = fbq;
-    inject('https://connect.facebook.net/en_US/fbevents.js'); win.fbq('init', pixel); win.fbq('track', 'PageView');
+    inject('https://connect.facebook.net/en_US/fbevents.js'); fbq('init', pixel); fbq('track', 'PageView');
   }
   const snap = import.meta.env.VITE_SNAP_PIXEL_ID;
   if (snap && !win.snaptr) {
     const snaptr: any = (...args: any[]) => snaptr.handleRequest ? snaptr.handleRequest(...args) : snaptr.queue.push(args);
     snaptr.queue = []; win.snaptr = snaptr;
-    inject('https://sc-static.net/scevent.min.js'); win.snaptr('init', snap); win.snaptr('track', 'PAGE_VIEW');
+    inject('https://sc-static.net/scevent.min.js'); snaptr('init', snap); snaptr('track', 'PAGE_VIEW');
   }
 }
