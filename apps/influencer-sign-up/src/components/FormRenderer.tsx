@@ -91,8 +91,7 @@ function getFilteredClassOptions(center: string, allOptions: string[]): string[]
   const c = (center || '').toLowerCase();
   if (c.includes('kwality')) return allOptions.filter(o => o === 'Barre' || o === 'Strength Lab' || o === 'powerCycle');
   if (c.includes('supreme')) return allOptions.filter(o => o === 'Barre' || o === 'powerCycle');
-  if (c.includes('kenkere')) return allOptions.filter(o => o === 'Barre');
-  if (c.includes('copper')) return allOptions.filter(o => o === 'Barre');
+  if (c.includes('kenkere') || c.includes('copper') || c.includes('sadashivnagar')) return allOptions.filter(o => o === 'Barre');
   return allOptions;
 }
 

@@ -44,7 +44,7 @@ const TEMPLATE_FIELDS = [
   { id: 'lastName', type: 'text', label: 'Last Name', placeholder: 'Enter your last name', required: true, gridCol: 'half' },
   { id: 'email', type: 'email', label: 'Email Address', placeholder: 'your@email.com', required: true, gridCol: 'half', helperText: "We'll send your booking confirmation here" },
   { id: 'phone', type: 'tel', label: 'Phone Number', placeholder: '+91 98765 43210', required: true, gridCol: 'half', helperText: 'Include country code for WhatsApp updates' },
-  { id: 'center', type: 'select', label: 'Preferred Studio', placeholder: 'Choose your studio', required: true, gridCol: 'full', helperText: 'Select the location nearest to you', options: ['Kwality House, Kemps Corner', 'Supreme HQ, Bandra', 'Kenkere House, Bengaluru', 'The Studio by Copper & Cloves, Bengaluru'] },
+  { id: 'center', type: 'select', label: 'Preferred Studio', placeholder: 'Choose your studio', required: true, gridCol: 'full', helperText: 'Select the location nearest to you', options: ['Kwality House, Kemps Corner', 'Supreme HQ, Bandra', 'Kenkere House, Bengaluru', 'The Studio by Copper & Cloves, Bengaluru', 'Sadashivnagar, Bengaluru'] },
   { id: 'classType', type: 'select', label: 'Class Format', placeholder: 'Choose a class', required: true, gridCol: 'full', helperText: 'Not sure? Try our signature Barre class', options: ['Barre', 'Strength Lab', 'powerCycle'] },
   { id: 'terms', type: 'terms', label: 'I agree to the Terms & Conditions and Privacy Policy of Physique 57', required: true, gridCol: 'full' },
 ];
@@ -63,19 +63,47 @@ function hashString(value) {
   for (let index = 0; index < value.length; index += 1) hash = Math.imul(hash ^ value.charCodeAt(index), 16777619);
   return hash >>> 0;
 }
+function normalizeFields(rawFields) {
+  const fields = Array.isArray(rawFields) ? rawFields : [];
+  return fields.map((field) => {
+    if (field?.id !== 'center') return field;
+    const options = Array.isArray(field.options) ? field.options : [];
+    return options.includes('Sadashivnagar, Bengaluru') ? field : { ...field, options: [...options, 'Sadashivnagar, Bengaluru'] };
+  });
+}
+function normalizeTitle(value) {
+  const title = String(value || '');
+  const legacy = title.match(/^(.*?)\s*[×x]\s*Physique 57$/i);
+  return legacy ? `Physique 57 x ${legacy[1].trim()}` : title;
+}
+function slugify(value) {
+  return String(value || 'physique-57').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'physique-57';
+}
+async function createUniqueSlug(label) {
+  const base = slugify(label);
+  const { data, error } = await supabase.from('forms').select('slug').like('slug', `${base}%`);
+  if (error) throw error;
+  const existing = new Set((data || []).map((row) => row.slug));
+  if (!existing.has(base)) return base;
+  let suffix = 2;
+  while (existing.has(`${base}-${suffix}`)) suffix += 1;
+  return `${base}-${suffix}`;
+}
 function publicForm(record, req) {
   const data = record.form_data || {};
+  const fields = normalizeFields(Array.isArray(data) ? data : data.fields);
+  const title = normalizeTitle(record.title);
   const appUrl = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
   return {
-    id: record.id, title: record.title || '', description: record.description || '', slug: record.slug || '', fields: Array.isArray(data) ? data : (data.fields || []),
+    id: record.id, title, description: record.description || '', slug: record.slug || '', fields,
     themeColor: record.theme_color || 'midnight', layout: data.layout || 'stacked', heroImage: data.heroImage || '', utmSource: data.utmSource || '',
     utmChannel: data.utmChannel || '', utmCampaign: data.utmCampaign || '', status: record.status || 'Draft', submissionCount: record.submission_count || 0,
     createdAt: record.created_at || '', shareUrl: `${appUrl}/f/${record.slug || ''}`, hashtag: data.hashtag || '', heroPosition: data.heroPosition || 'center',
     heroPositionX: data.heroPositionX ?? 50, heroPositionY: data.heroPositionY ?? 50, heroScale: data.heroScale ?? 1,
     accentColor: data.accentColor || '#00f5a0', heroHeight: data.heroHeight || 520, heroWidth: data.heroWidth || 48,
     hashtagSize: data.hashtagSize || 'sm', hashtagStyle: data.hashtagStyle || 'neon', hashtagPosition: data.hashtagPosition || 'left', logoPosition: data.logoPosition || 'left',
-    logoSize: data.logoSize || 'lg', logoInvert: data.logoInvert !== false, logoUrl: data.logoUrl || BRAND_LOGO,
-    influencerName: data.influencerName || '', eventName: data.eventName || '', metadataTitle: data.metadataTitle || record.title || '',
+    logoSize: data.logoSize || 'lg', logoInvert: false, logoUrl: data.logoUrl || BRAND_LOGO,
+    influencerName: data.influencerName || '', eventName: data.eventName || '', metadataTitle: normalizeTitle(data.metadataTitle || title),
     metadataDescription: data.metadataDescription || record.description || '', formWidth: data.formWidth || 480, formMinHeight: data.formMinHeight || 0,
     formBorderRadius: data.formBorderRadius ?? 16, formPadding: data.formPadding ?? 40, boldLabels: data.boldLabels || false,
   };
@@ -97,12 +125,13 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const seed = hashString(prompt.toLowerCase());
   const layout = FORM_LAYOUTS[seed % FORM_LAYOUTS.length];
   const experienceName = eventName || `${influencerName || campaignName} Signature Experience`;
-  const title = eventName ? `${eventName} × Physique 57` : `${influencerName || campaignName} × Physique 57`;
+  const partnerName = influencerName || eventName || campaignName;
+  const title = `Physique 57 x ${partnerName}${eventName && influencerName ? ` — ${eventName}` : ''}`;
   const peopleCopy = influencerName ? ` with ${influencerName}` : '';
   const description = details || `Join ${experienceName}${peopleCopy} for a signature Physique 57 experience designed to move, challenge, and connect.`;
   const metadataDescription = `${experienceName}${peopleCopy} — reserve your place for this Physique 57 signature experience.`;
-  const formData = { fields: TEMPLATE_FIELDS, layout, heroImage: HERO_IMAGES[(seed >>> 4) % HERO_IMAGES.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: ACCENT_COLORS[(seed >>> 22) % ACCENT_COLORS.length], formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: true, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: influencerSlug, utmChannel: `${prompt.toLowerCase().includes('instagram') ? 'social' : 'influencer'}_${influencerSlug}`, utmCampaign: influencerSlug, hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
-  const slug = `${(campaignName || 'physique-57-form').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${Date.now().toString(36)}`;
+  const formData = { fields: TEMPLATE_FIELDS, layout, heroImage: HERO_IMAGES[(seed >>> 4) % HERO_IMAGES.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: ACCENT_COLORS[(seed >>> 22) % ACCENT_COLORS.length], formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: influencerSlug, utmChannel: `${prompt.toLowerCase().includes('instagram') ? 'social' : 'influencer'}_${influencerSlug}`, utmCampaign: influencerSlug, hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
+  const slug = await createUniqueSlug(eventName || influencerName || campaignName);
   const { data, error } = await supabase.from('forms').insert({ title, description, slug, form_data: formData, theme_color: 'midnight', status: 'Draft', creator_email: req.body.creatorEmail || '' }).select().single();
   if (error) throw error;
   res.status(201).json({ form: publicForm(data, req) });
@@ -153,6 +182,7 @@ const CENTER_CONFIG = {
   'courtside, mumbai': { hostId: process.env.MOMENCE_MUMBAI_HOST_ID, token: process.env.MOMENCE_MUMBAI_TOKEN, sourceId: process.env.MOMENCE_MUMBAI_SOURCE_ID, city: 'mumbai' },
   'kenkere house, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
   'the studio by copper & cloves, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
+  'sadashivnagar, bengaluru': { hostId: process.env.MOMENCE_BENGALURU_HOST_ID, token: process.env.MOMENCE_BENGALURU_TOKEN, sourceId: process.env.MOMENCE_BENGALURU_SOURCE_ID, city: 'bengaluru' },
 };
 const FALLBACK_CENTER = 'Kwality House, Kemps Corner';
 function formatPhone(phone) {
@@ -209,4 +239,6 @@ app.get('/f/:slug', asyncRoute(async (req, res) => {
   res.send(html.replace(/<title>.*?<\/title>/, '').replace('</head>', `${metadata}</head>`));
 }));
 app.get('*', (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
-app.listen(port, () => console.log(`Supabase API listening on http://localhost:${port}`));
+if (!process.env.VERCEL) app.listen(port, () => console.log(`Supabase API listening on http://localhost:${port}`));
+
+export default app;

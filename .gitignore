@@ -16,3 +16,4 @@ zite.*
 apps/*/zite.*
 /src/
 /@types/
+.vercel/
