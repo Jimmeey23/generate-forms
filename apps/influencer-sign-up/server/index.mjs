@@ -37,7 +37,6 @@ const HERO_IMAGES = [
   'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/hE8EfAKjgiatvJCWPRN311/pasted-image-1782902134354-vxs5bt0r.jpg',
 ];
 const BRAND_LOGO = 'https://images.fillout.com/orgid-66954/flowpublicid-uxjuax2dbd/widgetid-default/jART4M3Yb27Pc9DpgJCpz5/pasted-image-1782902048740-lg84b5zl.png';
-const FORM_LAYOUTS = ['stacked', 'split', 'cinematic', 'minimal', 'hero-overlay', 'card-float'];
 const ACCENT_COLORS = ['#00f5a0', '#60a5fa', '#c084fc', '#fb7185', '#fbbf24', '#22d3ee'];
 const TEMPLATE_FIELDS = [
   { id: 'firstName', type: 'text', label: 'First Name', placeholder: 'Enter your first name', required: true, gridCol: 'half', helperText: '' },
@@ -96,7 +95,7 @@ function publicForm(record, req) {
   const appUrl = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
   return {
     id: record.id, title, description: record.description || '', slug: record.slug || '', fields,
-    themeColor: record.theme_color || 'midnight', layout: data.layout || 'stacked', heroImage: data.heroImage || '', utmSource: data.utmSource || '',
+    themeColor: 'midnight', layout: 'stacked', heroImage: data.heroImage || '', utmSource: data.utmSource || '',
     utmChannel: data.utmChannel || '', utmCampaign: data.utmCampaign || '', status: record.status || 'Draft', submissionCount: record.submission_count || 0,
     createdAt: record.created_at || '', shareUrl: `${appUrl}/f/${record.slug || ''}`, hashtag: data.hashtag || '', heroPosition: data.heroPosition || 'center',
     heroPositionX: data.heroPositionX ?? 50, heroPositionY: data.heroPositionY ?? 50, heroScale: data.heroScale ?? 1,
@@ -123,14 +122,13 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const details = extractPromptValue(prompt, 'Details');
   const influencerSlug = campaignName.toLowerCase().replace(/\s+/g, '_') || 'general';
   const seed = hashString(prompt.toLowerCase());
-  const layout = FORM_LAYOUTS[seed % FORM_LAYOUTS.length];
   const experienceName = eventName || `${influencerName || campaignName} Signature Experience`;
   const partnerName = influencerName || eventName || campaignName;
   const title = `Physique 57 x ${partnerName}${eventName && influencerName ? ` — ${eventName}` : ''}`;
   const peopleCopy = influencerName ? ` with ${influencerName}` : '';
   const description = details || `Join ${experienceName}${peopleCopy} for a signature Physique 57 experience designed to move, challenge, and connect.`;
   const metadataDescription = `${experienceName}${peopleCopy} — reserve your place for this Physique 57 signature experience.`;
-  const formData = { fields: TEMPLATE_FIELDS, layout, heroImage: HERO_IMAGES[(seed >>> 4) % HERO_IMAGES.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: ACCENT_COLORS[(seed >>> 22) % ACCENT_COLORS.length], formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: influencerSlug, utmChannel: `${prompt.toLowerCase().includes('instagram') ? 'social' : 'influencer'}_${influencerSlug}`, utmCampaign: influencerSlug, hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
+  const formData = { fields: TEMPLATE_FIELDS, layout: 'stacked', heroImage: HERO_IMAGES[(seed >>> 4) % HERO_IMAGES.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: ACCENT_COLORS[(seed >>> 22) % ACCENT_COLORS.length], formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: influencerSlug, utmChannel: `${prompt.toLowerCase().includes('instagram') ? 'social' : 'influencer'}_${influencerSlug}`, utmCampaign: influencerSlug, hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
   const slug = await createUniqueSlug(eventName || influencerName || campaignName);
   const { data, error } = await supabase.from('forms').insert({ title, description, slug, form_data: formData, theme_color: 'midnight', status: 'Draft', creator_email: req.body.creatorEmail || '' }).select().single();
   if (error) throw error;
