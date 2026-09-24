@@ -109,3 +109,18 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+/* Marquee strips on generated forms: the track holds two copies, so shifting by half loops seamlessly. */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.animate-marquee { animation: marquee 40s linear infinite; }
+.animate-marquee-slow { animation: marquee 70s linear infinite; }
+.animate-marquee-reverse { animation: marquee 60s linear infinite reverse; }
+.marquee-pause:hover .animate-marquee,
+.marquee-pause:hover .animate-marquee-slow,
+.marquee-pause:hover .animate-marquee-reverse { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee, .animate-marquee-slow, .animate-marquee-reverse { animation: none; }
+}

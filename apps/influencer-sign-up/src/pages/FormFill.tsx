@@ -4,11 +4,20 @@ import { Skeleton } from '@project/components/ui/skeleton';
 import { getForm, submitForm, GetFormOutputType } from '@/lib/api';
 import { toast } from 'sonner';
 import FormRenderer from '@/components/FormRenderer';
+import FormExtras from '@/components/FormExtras';
 import { setFormMetaTags, resetMetaTags } from '@/lib/setMetaTags';
 import { captureAttribution } from '@/lib/attribution';
 import { cityFor, saveSignupDetails } from '@/lib/signupDetails';
 
 type FormData = NonNullable<GetFormOutputType['form']>;
+
+// Older forms predate the saved studio list, so fall back to the studio field's options.
+function formStudios(form: FormData): string[] {
+  if (form.targetStudios?.length) return form.targetStudios;
+  if (form.targetStudio) return [form.targetStudio];
+  const centerField = (form.fields as { id: string; options?: string[] }[]).find((field) => field.id === 'center');
+  return centerField?.options || [];
+}
 
 export default function FormFill() {
   const { slug } = useParams();
@@ -104,8 +113,8 @@ export default function FormFill() {
   }
 
   return (
-    <div className="min-h-screen bg-background py-8 px-4">
-      <div className="max-w-3xl mx-auto">
+    <div className="min-h-screen bg-background pt-8">
+      <div className="max-w-3xl mx-auto px-4">
         <FormRenderer
           form={{
             title: form.title,
@@ -138,6 +147,7 @@ export default function FormFill() {
           submitting={submitting}
         />
       </div>
+      <FormExtras studios={formStudios(form)} classFormats={form.classFormats || []} signupType={form.signupType} />
     </div>
   );
 }

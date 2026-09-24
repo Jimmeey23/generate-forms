@@ -119,11 +119,6 @@ function normalizeFields(rawFields, hasStudioList = false) {
     return { ...field, options: [...options.filter((option) => option !== 'Sadashivnagar, Bengaluru'), 'Plash Pilates, Bengaluru'] };
   });
 }
-function normalizeTitle(value) {
-  const title = String(value || '');
-  const legacy = title.match(/^(.*?)\s*[×x]\s*Physique 57$/i);
-  return legacy ? `Physique 57 x ${legacy[1].trim()}` : title;
-}
 function slugify(value) {
   return String(value || 'physique-57').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'physique-57';
 }
@@ -140,7 +135,7 @@ async function createUniqueSlug(label) {
 function publicForm(record, req) {
   const data = record.form_data || {};
   const fields = normalizeFields(Array.isArray(data) ? data : data.fields, Array.isArray(data.targetStudios));
-  const title = normalizeTitle(record.title);
+  const title = String(record.title || '');
   const appUrl = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
   return {
     id: record.id, title, description: record.description || '', slug: record.slug || '', fields,
@@ -151,7 +146,7 @@ function publicForm(record, req) {
     accentColor: data.accentColor || '#00f5a0', heroHeight: data.heroHeight || 520, heroWidth: data.heroWidth || 48,
     hashtagSize: data.hashtagSize || 'sm', hashtagStyle: data.hashtagStyle || 'neon', hashtagPosition: data.hashtagPosition || 'left', logoPosition: data.logoPosition || 'left',
     logoSize: data.logoSize || 'lg', logoInvert: false, logoUrl: data.logoUrl || BRAND_LOGO,
-    influencerName: data.influencerName || '', eventName: data.eventName || '', metadataTitle: normalizeTitle(data.metadataTitle || title),
+    influencerName: data.influencerName || '', eventName: data.eventName || '', metadataTitle: data.metadataTitle || title,
     metadataDescription: data.metadataDescription || record.description || '', formWidth: data.formWidth || 480, formMinHeight: data.formMinHeight || 0,
     formBorderRadius: data.formBorderRadius ?? 16, formPadding: data.formPadding ?? 40, boldLabels: data.boldLabels || false,
     signupType: data.signupType || 'free', targetStudio: data.targetStudio || '', sessionId: data.sessionId || '', classFormat: data.classFormat || '',
@@ -197,7 +192,8 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const seed = hashString(prompt.toLowerCase());
   const experienceName = eventName || `${influencerName || campaignName} Signature Experience`;
   const partnerName = influencerName || eventName || campaignName;
-  const title = `Physique 57 x ${partnerName}${eventName && influencerName ? ` — ${eventName}` : ''}`;
+  // The form shows exactly what the organiser typed: the event title, else the partner's name.
+  const title = eventName || influencerName || campaignName;
   const peopleCopy = influencerName ? ` with ${influencerName}` : '';
   const experienceKind = classFormats.length ? `Physique 57 ${classFormats.join(' & ')}` : 'signature Physique 57';
   const whenCopy = formatEventWhen(eventDate, eventTime);
