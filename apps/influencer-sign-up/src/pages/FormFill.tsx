@@ -113,8 +113,12 @@ export default function FormFill() {
   }
 
   return (
-    <div className="min-h-screen bg-background pt-8">
-      <div className="max-w-3xl mx-auto px-4">
+    <div className="relative min-h-screen overflow-x-clip bg-background">
+      {/* Soft brand glow behind the form */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[720px]"
+        style={{ background: 'radial-gradient(60% 50% at 50% 0%, rgba(127,211,247,0.10), transparent 70%)' }} />
+      {/* One column for the form and every section beneath it, so edges line up. */}
+      <main className="relative mx-auto max-w-4xl px-4 pb-24 pt-6 sm:px-6 sm:pt-10">
         <FormRenderer
           form={{
             title: form.title,
@@ -146,8 +150,8 @@ export default function FormFill() {
           onSubmit={handleSubmit}
           submitting={submitting}
         />
-      </div>
-      <FormExtras studios={formStudios(form)} classFormats={form.classFormats || []} signupType={form.signupType} />
+        <FormExtras studios={formStudios(form)} classFormats={form.classFormats || []} signupType={form.signupType} />
+      </main>
     </div>
   );
 }

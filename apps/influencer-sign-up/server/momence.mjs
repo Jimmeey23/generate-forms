@@ -18,6 +18,7 @@ const MEMBERSHIPS = {
   36372: { paid: 548528, price: 945, product: 'prod_UykBa2v6q915IL', label: 'Bengaluru Intro Pack' },
   383332: { paid: 111528, price: 1418, priceId: 'price_1SvY3sFDEp8YEMWaXio0FOx8', label: 'Bengaluru Intro Pack' },
 };
+const PLASH_SCHEDULE_LOCATION_IDS = [287883, 36372];
 const PAYMENT_METHODS = { mumbai: 4578, bengaluru: 5801 };
 const tokenCache = new Map();
 let dashboardCookies = null;
@@ -64,8 +65,14 @@ function totp(secret) {
   return String((((hash[offset] & 127) << 24) | (hash[offset + 1] << 16) | (hash[offset + 2] << 8) | hash[offset + 3]) % 1000000).padStart(6, '0');
 }
 function cookiePairs(headers) { return (headers.getSetCookie?.() || []).map((value) => value.split(';')[0]).join('; '); }
-async function getDashboardCookies(force = false) {
-  if (!force && dashboardCookies?.expiresAt > Date.now()) return dashboardCookies.value;
+let dashboardLogin = null;
+// Parallel requests share one login: Momence rejects a TOTP code that is reused within its 30-second window.
+function getDashboardCookies(force = false) {
+  if (!force && dashboardCookies?.expiresAt > Date.now()) return Promise.resolve(dashboardCookies.value);
+  dashboardLogin ||= loginToDashboard().finally(() => { dashboardLogin = null; });
+  return dashboardLogin;
+}
+async function loginToDashboard() {
   const deviceData = { browser: 'Mozilla/5.0', screen: { width: 1440, height: 900 } };
   const login = await fetch('https://api.momence.com/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: required('MOMENCE_LOGIN_EMAIL'), password: required('MOMENCE_LOGIN_PASSWORD'), deviceData }) });
   if (!login.ok) throw new Error(`Momence dashboard login failed (${login.status}).`);
@@ -124,9 +131,17 @@ export async function listSessions(center, classType, daysAhead = 30) {
   const config = locationConfig(center); const now = new Date(); const end = new Date(Date.now() + Math.min(60, Math.max(1, daysAhead)) * 86400000);
   let payload = [];
   if (config.id === 383332) {
-    const params = new URLSearchParams({ sortBy: 'startsAt', sortOrder: 'ASC', dateFrom: now.toISOString(), page: '0', pageSize: '200', timeZone: 'Asia/Kolkata', grouped: 'false' });
-    params.append('locationIds[]', '383332'); params.append('status[]', 'published'); params.append('status[]', 'unpublished');
-    const result = await readonly(`/host/33905/sessions?${params}`); payload = Array.isArray(result) ? result : Array.isArray(result.payload) ? result.payload : (result.payload?.sessions || result.sessions || []);
+    // Plash classes are scheduled under the Bengaluru partner locations and identified by name, as in the Momence dashboard.
+    const pageSize = 100;
+    for (let page = 0; page < 10; page += 1) {
+      const params = new URLSearchParams({ sortBy: 'startsAt', sortOrder: 'ASC', dateFrom: now.toISOString(), page: String(page), pageSize: String(pageSize), query: 'plash', timeZone: 'Asia/Kolkata', grouped: 'false' });
+      for (const id of PLASH_SCHEDULE_LOCATION_IDS) params.append('locationIds[]', String(id));
+      params.append('status[]', 'published'); params.append('status[]', 'unpublished');
+      const result = await readonly(`/host/33905/sessions?${params}`);
+      const rows = Array.isArray(result) ? result : Array.isArray(result.payload) ? result.payload : (result.payload?.sessions || result.sessions || []);
+      payload.push(...rows.filter((session) => new Date(session.startsAt) < end));
+      if (rows.length < pageSize || rows.some((session) => new Date(session.startsAt) >= end)) break;
+    }
   } else {
     const params = new URLSearchParams({ page: '0', pageSize: '200', sortBy: 'startsAt', sortOrder: 'ASC', locationId: String(config.id), startAfter: now.toISOString(), startBefore: end.toISOString(), includeCancelled: 'false', includeChildLocations: 'true' });
     const result = await momence(`/host/sessions?${params}`, {}, config.account); payload = result.payload || [];
