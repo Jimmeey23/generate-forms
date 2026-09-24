@@ -67,10 +67,16 @@ const SIGNATURE_FIELDS = [
   { id: 'signatureRealSignature', type: 'signature', label: 'Drawn signature', required: true, gridCol: 'full', helperText: 'Sign with your finger, stylus, trackpad, or mouse.' },
   { id: 'waiverAccepted', type: 'terms', label: 'I have read, signed, and accept the waiver and Physique 57 India privacy terms.', required: true, gridCol: 'full' },
 ];
-function fieldsForSignupType(signupType, targetStudio, classFormat = '') {
-  const studio = String(targetStudio || FALLBACK_CENTER);
-  const adult = TEMPLATE_FIELDS.filter((field) => !['center', 'terms'].includes(field.id)).map((field) => field.id === 'classType' ? { ...field, options: classFormat ? [classFormat] : getClassOptions(studio), ...(classFormat ? { helperText: `This form is for ${classFormat} classes` } : {}) } : field);
-  const common = [...adult.slice(0, 4), { id: 'center', type: 'select', label: 'Studio', required: true, gridCol: 'full', options: [studio] }];
+const SUPPORTED_STUDIOS = ['Kwality House, Kemps Corner', 'Supreme HQ, Bandra', 'Kenkere House, Bengaluru', 'The Studio by Copper & Cloves, Bengaluru', 'Plash Pilates, Bengaluru'];
+function fieldsForSignupType(signupType, studios, classFormats = []) {
+  const offered = [...new Set(studios.flatMap(getClassOptions))];
+  const formats = classFormats.length ? classFormats.filter((format) => offered.includes(format)) : offered;
+  const formatHelp = classFormats.length ? { helperText: `This form is for ${formats.join(' and ')} classes` } : {};
+  const adult = TEMPLATE_FIELDS.filter((field) => !['center', 'terms'].includes(field.id)).map((field) => field.id === 'classType' ? { ...field, options: formats, ...formatHelp } : field);
+  const studioField = studios.length === 1
+    ? { id: 'center', type: 'select', label: 'Studio', required: true, gridCol: 'full', options: studios }
+    : { id: 'center', type: 'select', label: 'Preferred Studio', placeholder: 'Choose your studio', required: true, gridCol: 'full', helperText: 'Select the location nearest to you', options: studios };
+  const common = [...adult.slice(0, 4), studioField];
   if (signupType === 'kids') return [
     ...common,
     { id: 'childName', type: 'text', label: "Child's full name", required: true, gridCol: 'full' },
@@ -85,6 +91,12 @@ function getClassOptions(studio) {
   const value = String(studio || '').toLowerCase();
   if (value.includes('kenkere') || value.includes('copper') || value.includes('plash') || value.includes('bengaluru')) return ['Barre'];
   return ['Barre', 'Strength Lab', 'powerCycle'];
+}
+function formatEventWhen(date, time) {
+  if (!date) return '';
+  const value = new Date(`${date}T${time || '00:00'}:00+05:30`);
+  const day = value.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Kolkata' });
+  return time ? `${day}, ${value.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' })}` : day;
 }
 function extractName(prompt) {
   const match = prompt.match(/(?:influencer|partner)[:\s]+([^|]+)/i);
@@ -101,8 +113,10 @@ function hashString(value) {
   for (let index = 0; index < value.length; index += 1) hash = Math.imul(hash ^ value.charCodeAt(index), 16777619);
   return hash >>> 0;
 }
-function normalizeFields(rawFields) {
+// Legacy forms predate Plash Pilates; forms with an explicit studio list keep exactly that list.
+function normalizeFields(rawFields, hasStudioList = false) {
   const fields = Array.isArray(rawFields) ? rawFields : [];
+  if (hasStudioList) return fields;
   return fields.map((field) => {
     if (field?.id !== 'center') return field;
     const options = Array.isArray(field.options) ? field.options : [];
@@ -130,7 +144,7 @@ async function createUniqueSlug(label) {
 }
 function publicForm(record, req) {
   const data = record.form_data || {};
-  const fields = normalizeFields(Array.isArray(data) ? data : data.fields);
+  const fields = normalizeFields(Array.isArray(data) ? data : data.fields, Array.isArray(data.targetStudios));
   const title = normalizeTitle(record.title);
   const appUrl = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
   return {
@@ -146,6 +160,8 @@ function publicForm(record, req) {
     metadataDescription: data.metadataDescription || record.description || '', formWidth: data.formWidth || 480, formMinHeight: data.formMinHeight || 0,
     formBorderRadius: data.formBorderRadius ?? 16, formPadding: data.formPadding ?? 40, boldLabels: data.boldLabels || false,
     signupType: data.signupType || 'free', targetStudio: data.targetStudio || '', sessionId: data.sessionId || '', classFormat: data.classFormat || '',
+    targetStudios: data.targetStudios || (data.targetStudio ? [data.targetStudio] : []), classFormats: data.classFormats || (data.classFormat ? [data.classFormat] : []),
+    eventDate: data.eventDate || '', eventTime: data.eventTime || '', eventVenue: data.eventVenue || '',
   };
 }
 
@@ -162,23 +178,37 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const eventName = extractPromptValue(prompt, 'Event');
   const details = extractPromptValue(prompt, 'Details');
   const signupType = ['kids', 'free', 'paid'].includes(req.body.signupType) ? req.body.signupType : 'free';
-  const targetStudio = String(req.body.targetStudio || FALLBACK_CENTER).trim();
+  const requestedStudios = Array.isArray(req.body.targetStudios) ? req.body.targetStudios : [req.body.targetStudio || FALLBACK_CENTER];
+  const targetStudios = SUPPORTED_STUDIOS.filter((studio) => requestedStudios.map((value) => String(value).trim()).includes(studio));
+  if (!targetStudios.length) return res.status(400).json({ error: 'Choose at least one supported studio.' });
+  // A single studio pins Momence routing and booking; with several, the guest's choice in the form decides.
+  const targetStudio = targetStudios.length === 1 ? targetStudios[0] : '';
   const sessionId = String(req.body.sessionId || '').trim();
-  if (signupType === 'paid' && !/^\d+$/.test(sessionId)) return res.status(400).json({ error: 'Paid signup forms require a valid Momence session ID.' });
-  const requestedFormat = String(req.body.classFormat || '').trim();
-  if (requestedFormat && (!CLASS_FORMATS.includes(requestedFormat) || !getClassOptions(targetStudio).includes(requestedFormat))) return res.status(400).json({ error: `${requestedFormat} is not offered at ${targetStudio}.` });
-  const classFormat = signupType === 'kids' ? '' : requestedFormat;
+  if (sessionId && !targetStudio) return res.status(400).json({ error: 'A Momence class can only be pre-selected when one studio is chosen.' });
+  if (signupType === 'paid' && !/^\d+$/.test(sessionId)) return res.status(400).json({ error: 'Paid signup forms require a single studio and a Momence class.' });
+  const requestedFormats = (Array.isArray(req.body.classFormats) ? req.body.classFormats : [req.body.classFormat]).map((value) => String(value || '').trim()).filter(Boolean);
+  const offeredFormats = [...new Set(targetStudios.flatMap(getClassOptions))];
+  const unavailable = requestedFormats.find((format) => !CLASS_FORMATS.includes(format) || !offeredFormats.includes(format));
+  if (unavailable) return res.status(400).json({ error: `${unavailable} is not offered at the selected studios.` });
+  const classFormats = signupType === 'kids' ? [] : CLASS_FORMATS.filter((format) => requestedFormats.includes(format));
+  const classFormat = classFormats.length === 1 ? classFormats[0] : '';
+  const eventDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.eventDate || '')) ? req.body.eventDate : '';
+  const eventTime = /^\d{2}:\d{2}$/.test(String(req.body.eventTime || '')) ? req.body.eventTime : '';
+  const eventVenue = String(req.body.eventVenue || '').trim().slice(0, 300);
   const influencerSlug = campaignName.toLowerCase().replace(/\s+/g, '_') || 'general';
   const seed = hashString(prompt.toLowerCase());
   const experienceName = eventName || `${influencerName || campaignName} Signature Experience`;
   const partnerName = influencerName || eventName || campaignName;
   const title = `Physique 57 x ${partnerName}${eventName && influencerName ? ` — ${eventName}` : ''}`;
   const peopleCopy = influencerName ? ` with ${influencerName}` : '';
-  const experienceKind = classFormat ? `Physique 57 ${classFormat}` : 'signature Physique 57';
-  const description = details || `Join ${experienceName}${peopleCopy} for a ${experienceKind} experience designed to move, challenge, and connect.`;
+  const experienceKind = classFormats.length ? `Physique 57 ${classFormats.join(' & ')}` : 'signature Physique 57';
+  const whenCopy = formatEventWhen(eventDate, eventTime);
+  const whereCopy = eventVenue || (targetStudio ? targetStudio : '');
+  const logistics = [whenCopy && `on ${whenCopy}`, whereCopy && `at ${whereCopy}`].filter(Boolean).join(' ');
+  const description = details || `Join ${experienceName}${peopleCopy}${logistics ? ` ${logistics}` : ''} for a ${experienceKind} experience designed to move, challenge, and connect.`;
   const metadataDescription = `${experienceName}${peopleCopy} — reserve your place for this ${experienceKind} experience.`;
-  const heroPool = classFormat ? FORMAT_HERO_INDEXES[classFormat].map((index) => HERO_IMAGES[index]) : HERO_IMAGES;
-  const formData = { fields: fieldsForSignupType(signupType, targetStudio, classFormat), signupType, targetStudio, sessionId, classFormat, layout: 'stacked', heroImage: heroPool[(seed >>> 4) % heroPool.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: ACCENT_COLORS[(seed >>> 22) % ACCENT_COLORS.length], formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: influencerSlug, utmChannel: `${prompt.toLowerCase().includes('instagram') ? 'social' : 'influencer'}_${influencerSlug}`, utmCampaign: influencerSlug, hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
+  const heroPool = classFormats.length ? classFormats.flatMap((format) => FORMAT_HERO_INDEXES[format]).map((index) => HERO_IMAGES[index]) : HERO_IMAGES;
+  const formData = { fields: fieldsForSignupType(signupType, targetStudios, classFormats), signupType, targetStudio, targetStudios, sessionId, classFormat, classFormats, eventDate, eventTime, eventVenue, layout: 'stacked', heroImage: heroPool[(seed >>> 4) % heroPool.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: ACCENT_COLORS[(seed >>> 22) % ACCENT_COLORS.length], formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: influencerSlug, utmChannel: `${prompt.toLowerCase().includes('instagram') ? 'social' : 'influencer'}_${influencerSlug}`, utmCampaign: influencerSlug, hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
   const slug = await createUniqueSlug(eventName || influencerName || campaignName);
   const { data, error } = await supabase.from('forms').insert({ title, description, slug, form_data: formData, theme_color: 'midnight', status: 'Draft', creator_email: req.body.creatorEmail || '' }).select().single();
   if (error) throw error;
@@ -285,6 +315,8 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   const utmCampaign = formData.utmCampaign || req.body.utmCampaign || attribution.utmCampaign;
   const email = String(responses.email || '').trim();
   const phone = formatPhone(responses.phone);
+  const allowedStudios = Array.isArray(formData.targetStudios) ? formData.targetStudios : [];
+  if (allowedStudios.length && !allowedStudios.includes(rawCenter)) return res.status(400).json({ error: 'Please choose one of the studios offered on this form.' });
   if (await isDuplicateSubmission(req.params.id, email, phone)) return res.status(409).json({ error: 'You have already signed up for this form with this email or phone number.', duplicate: true });
   const { data: submission, error } = await supabase.from('form_submissions').insert({ form_id: req.params.id, response_data: responses, submitter_email: email, first_name: responses.firstName || '', last_name: responses.lastName || '', phone, center: rawCenter, class_type: responses.classType || '', utm_source: utmSource, utm_campaign: utmCampaign, utm_channel: utmChannel, utm_medium: attribution.utmMedium, utm_term: attribution.utmTerm, utm_content: attribution.utmContent, gclid: attribution.gclid, fbclid: attribution.fbclid, referrer: attribution.referrer, landing_page: attribution.landingPage, ab_variant: attribution.abVariant }).select('id').single();
   if (error) throw error;

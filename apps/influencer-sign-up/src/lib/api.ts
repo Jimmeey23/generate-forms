@@ -10,6 +10,7 @@ export type FormRecord = {
   formWidth: number; formMinHeight: number; formBorderRadius: number; formPadding: number; boldLabels: boolean;
   accentColor: string; heroScale: number;
   signupType: 'kids' | 'free' | 'paid'; targetStudio: string; sessionId: string; classFormat: string;
+  targetStudios: string[]; classFormats: string[]; eventDate: string; eventTime: string; eventVenue: string;
 };
 export type SubmissionRecord = { id: string; responses: Record<string, any>; submitterEmail: string; submittedAt: string };
 export type GetFormOutputType = { form: FormRecord | null };
@@ -25,7 +26,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return response.json();
 }
 
-export const generateForm = (input: { prompt: string; creatorEmail?: string; signupType: 'kids' | 'free' | 'paid'; targetStudio: string; sessionId?: string; classFormat?: string }) => request<{ form: FormRecord }>('/api/generate-form', { method: 'POST', body: JSON.stringify(input) });
+export const generateForm = (input: { prompt: string; creatorEmail?: string; signupType: 'kids' | 'free' | 'paid'; targetStudios: string[]; sessionId?: string; classFormats?: string[]; eventDate?: string; eventTime?: string; eventVenue?: string }) => request<{ form: FormRecord }>('/api/generate-form', { method: 'POST', body: JSON.stringify(input) });
 export const getForms = (input: { creatorEmail?: string }) => request<GetFormsOutputType>(`/api/forms${input.creatorEmail ? `?creatorEmail=${encodeURIComponent(input.creatorEmail)}` : ''}`);
 export const getForm = (input: { id?: string; slug?: string }) => request<GetFormOutputType>(`/api/forms/${encodeURIComponent(input.id || input.slug || '')}${input.slug ? '?by=slug' : ''}`);
 export const updateForm = (input: { id: string; [key: string]: any }) => {

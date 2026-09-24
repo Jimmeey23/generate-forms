@@ -3,9 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@project/components/ui/button';
 import { Input } from '@project/components/ui/input';
 import { Label } from '@project/components/ui/label';
-import { Textarea } from '@project/components/ui/textarea';
-import { Loader2, ArrowRight, Sparkles, Zap, Share2, BarChart3, ChevronLeft, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle } from 'lucide-react';
-import { generateForm } from '@/lib/api';
+import { Loader2, ArrowRight, Sparkles, Zap, Share2, BarChart3, ChevronLeft, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle, AlertCircle } from 'lucide-react';
+import { generateForm, getMomenceSessions, type MomenceSession } from '@/lib/api';
 import { toast } from 'sonner';
 import { BRAND_LOGO, HERO_IMAGES } from '@/lib/constants';
 import { motion, AnimatePresence, MotionConfig, type Variants } from 'framer-motion';
@@ -23,15 +22,25 @@ const STUDIOS_BY_CITY: { city: string; studios: string[] }[] = [
   { city: 'Bengaluru', studios: ['Kenkere House, Bengaluru', 'The Studio by Copper & Cloves, Bengaluru', 'Plash Pilates, Bengaluru'] },
 ];
 
-type ClassFormat = '' | 'Barre' | 'Strength Lab' | 'powerCycle';
+const ALL_STUDIOS = STUDIOS_BY_CITY.flatMap((group) => group.studios);
+
+type ClassFormat = 'Barre' | 'Strength Lab' | 'powerCycle';
 
 // Indexes into HERO_IMAGES that picture each format; the server picks form heroes from the same sets.
-const CLASS_FORMATS: { value: Exclude<ClassFormat, ''>; desc: string; images: number[] }[] = [
+const CLASS_FORMATS: { value: ClassFormat; desc: string; images: number[] }[] = [
   { value: 'Barre', desc: 'Signature interval overload', images: [1, 2, 8] },
   { value: 'Strength Lab', desc: 'Targeted weight training', images: [3, 4, 5, 6] },
   { value: 'powerCycle', desc: 'High-intensity rhythm ride', images: [0, 7] },
 ];
-const formatsForStudio = (studio: string) => (/bengaluru/i.test(studio) ? ['Barre'] : CLASS_FORMATS.map((f) => f.value));
+const formatsForStudio = (studio: string): ClassFormat[] => (/bengaluru/i.test(studio) ? ['Barre'] : CLASS_FORMATS.map((f) => f.value));
+const toggle = <T,>(list: T[], value: T) => (list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
+const IST = { timeZone: 'Asia/Kolkata' } as const;
+const sessionDay = (session: MomenceSession) => new Date(session.startsAt).toLocaleDateString('en-IN', { ...IST, weekday: 'short', day: 'numeric', month: 'short' });
+const sessionTime = (session: MomenceSession) => new Date(session.startsAt).toLocaleTimeString('en-IN', { ...IST, hour: 'numeric', minute: '2-digit' });
+const istParts = (iso: string) => {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { ...IST, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(iso)).map((part) => [part.type, part.value]));
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
+};
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 const stagger: Variants = { hidden: {}, show: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } } };
@@ -43,21 +52,58 @@ const labelClass = 'text-[11px] uppercase tracking-wider mb-2 block font-bold te
 export default function LandingPage() {
   const [influencer, setInfluencer] = useState('');
   const [eventTitle, setEventTitle] = useState('');
-  const [eventDetails, setEventDetails] = useState('');
+  const [eventDate, setEventDate] = useState('');
+  const [eventTime, setEventTime] = useState('');
+  const [eventVenue, setEventVenue] = useState('');
   const [signupType, setSignupType] = useState<SignupType>('free');
-  const [targetStudio, setTargetStudio] = useState('Kwality House, Kemps Corner');
+  const [studios, setStudios] = useState<string[]>(['Kwality House, Kemps Corner']);
+  const [formats, setFormats] = useState<ClassFormat[]>([]);
   const [sessionId, setSessionId] = useState('');
-  const [classFormat, setClassFormat] = useState<ClassFormat>('');
+  const [sessions, setSessions] = useState<MomenceSession[]>([]);
+  const [sessionsState, setSessionsState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const availableFormats = formatsForStudio(targetStudio);
-  const effectiveFormat: ClassFormat = signupType === 'kids' || !availableFormats.includes(classFormat) ? '' : classFormat;
-  const carouselImages = useMemo(() => effectiveFormat ? CLASS_FORMATS.find((f) => f.value === effectiveFormat)!.images.map((index) => HERO_IMAGES[index]) : HERO_IMAGES, [effectiveFormat]);
+  const availableFormats = useMemo(() => CLASS_FORMATS.map((f) => f.value).filter((format) => studios.some((studio) => formatsForStudio(studio).includes(format))), [studios]);
+  const effectiveFormats = useMemo(() => (signupType === 'kids' ? [] : availableFormats.filter((format) => formats.includes(format))), [signupType, formats, availableFormats]);
+  const formatKey = effectiveFormats.join(',');
+  const carouselImages = useMemo(() => effectiveFormats.length ? CLASS_FORMATS.filter((f) => effectiveFormats.includes(f.value)).flatMap((f) => f.images).map((index) => HERO_IMAGES[index]) : HERO_IMAGES, [formatKey]);
+  // A Momence class belongs to exactly one studio, so pre-booking needs a single studio.
+  const singleStudio = studios.length === 1 ? studios[0] : '';
 
-  const city = STUDIOS_BY_CITY.find((group) => group.studios.includes(targetStudio))?.city || 'Mumbai';
+  useEffect(() => {
+    setSessions([]);
+    if (!singleStudio) { setSessionsState('idle'); setSessionId(''); return; }
+    let cancelled = false;
+    setSessionsState('loading');
+    const wanted = effectiveFormats.length ? effectiveFormats : formatsForStudio(singleStudio);
+    Promise.all(wanted.map((classType) => getMomenceSessions({ center: singleStudio, classType })))
+      .then((results) => {
+        if (cancelled) return;
+        const merged = [...new Map(results.flatMap((result) => result.sessions).map((session) => [session.id, session])).values()]
+          .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+        setSessions(merged);
+        setSessionsState('ready');
+        setSessionId((current) => (merged.some((session) => String(session.id) === current) ? current : ''));
+      })
+      .catch(() => { if (!cancelled) setSessionsState('error'); });
+    return () => { cancelled = true; };
+  }, [singleStudio, formatKey]);
+
+  const sessionsByDay = useMemo(() => sessions.reduce<Record<string, MomenceSession[]>>((days, session) => { (days[sessionDay(session)] ||= []).push(session); return days; }, {}), [sessions]);
+  const selectedSession = sessions.find((session) => String(session.id) === sessionId);
+  const chooseSession = (id: string) => {
+    setSessionId(id);
+    const session = sessions.find((item) => String(item.id) === id);
+    // Pre-fill the event schedule from the class unless the organiser already set one.
+    if (session && !eventDate && !eventTime) { const { date, time } = istParts(session.startsAt); setEventDate(date); setEventTime(time); }
+  };
+
+  const cities = STUDIOS_BY_CITY.filter((group) => group.studios.some((studio) => studios.includes(studio))).map((group) => group.city);
+  const studioSummary = studios.length === ALL_STUDIOS.length ? 'All studios' : studios.length === 1 ? studios[0] : `${studios.length} studios`;
   const flow = SIGNUP_FLOWS.find((option) => option.value === signupType)!;
-  const canGenerate = Boolean(influencer.trim() || eventTitle.trim()) && (signupType !== 'paid' || /^\d+$/.test(sessionId.trim()));
+  const paidReady = signupType !== 'paid' || (Boolean(singleStudio) && /^\d+$/.test(sessionId));
+  const canGenerate = Boolean(influencer.trim() || eventTitle.trim()) && studios.length > 0 && paidReady;
 
   const handleGenerate = async () => {
     if (!influencer.trim() && !eventTitle.trim()) {
@@ -66,12 +112,12 @@ export default function LandingPage() {
     }
     setLoading(true);
     try {
-      const prompt = [influencer.trim() && `Influencer/Partner: ${influencer.trim()}`, eventTitle.trim() && `Event: ${eventTitle.trim()}`, eventDetails.trim() && `Details: ${eventDetails.trim()}`].filter(Boolean).join(' | ');
-      if (signupType === 'paid' && !/^\d+$/.test(sessionId.trim())) {
-        toast.error('Paid signups require a valid Momence session ID');
+      const prompt = [influencer.trim() && `Influencer/Partner: ${influencer.trim()}`, eventTitle.trim() && `Event: ${eventTitle.trim()}`].filter(Boolean).join(' | ');
+      if (!paidReady) {
+        toast.error('Paid signups need a single studio and a Momence class');
         return;
       }
-      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudio, sessionId: sessionId.trim(), classFormat: effectiveFormat });
+      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId: singleStudio ? sessionId : '', classFormats: effectiveFormats, eventDate, eventTime, eventVenue: eventVenue.trim() });
       toast.success('Form created!');
       navigate(`/form/${form.id}/preview`);
     } catch (error) {
@@ -157,10 +203,22 @@ export default function LandingPage() {
                       <Label className={labelClass}>Event Title</Label>
                       <Input value={eventTitle} onChange={(e) => setEventTitle(e.target.value)} placeholder="e.g. Open House, Exclusive Barre Class" className={fieldClass} />
                     </div>
-                    <div className="md:col-span-2">
-                      <Label className={labelClass}>Event Details (optional)</Label>
-                      <Textarea value={eventDetails} onChange={(e) => setEventDetails(e.target.value)} placeholder="Venue, date, time, any special notes..."
-                        rows={3} className="resize-none bg-muted/30 border-border/50 focus:border-purple-500/40 transition-colors text-sm" />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="event-date" className={labelClass}>Event date</Label>
+                        <Input id="event-date" type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className={`${fieldClass} [color-scheme:dark]`} />
+                      </div>
+                      <div>
+                        <Label htmlFor="event-time" className={labelClass}>Start time</Label>
+                        <Input id="event-time" type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} className={`${fieldClass} [color-scheme:dark]`} />
+                      </div>
+                    </div>
+                    <div>
+                      <Label htmlFor="event-venue" className={labelClass}>Venue details</Label>
+                      <div className="relative">
+                        <MapPin className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input id="event-venue" value={eventVenue} onChange={(e) => setEventVenue(e.target.value)} placeholder="Defaults to the studio · e.g. Rooftop, Supreme HQ" className={`${fieldClass} pl-9`} />
+                      </div>
                     </div>
                   </div>
                 </FormSection>
@@ -177,16 +235,18 @@ export default function LandingPage() {
                   </div>
                 </FormSection>
 
-                <FormSection step="03" title="Studio" hint="Routes leads to the right Momence account">
+                <FormSection step="03" title="Studios" hint="Select one or more · guests choose between them"
+                  action={<SelectAll clearLabel="Reset" allSelected={studios.length === ALL_STUDIOS.length} onToggle={(all) => setStudios(all ? [...ALL_STUDIOS] : [ALL_STUDIOS[0]])} />}>
                   <div className="space-y-4">
                     {STUDIOS_BY_CITY.map((group) => (
                       <div key={group.city}>
                         <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-2">
                           <MapPin className="w-3 h-3" /> {group.city}
                         </span>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" role="radiogroup" aria-label={`${group.city} studios`}>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" role="group" aria-label={`${group.city} studios`}>
                           {group.studios.map((studio) => (
-                            <OptionTile key={studio} group="studio" selected={targetStudio === studio} onSelect={() => setTargetStudio(studio)}>
+                            <OptionTile key={studio} group="studio" multi selected={studios.includes(studio)}
+                              onSelect={() => setStudios((current) => (current.includes(studio) && current.length === 1 ? current : toggle(current, studio)))}>
                               <span className="block text-sm font-semibold leading-snug">{studio.replace(/, Bengaluru$/, '')}</span>
                             </OptionTile>
                           ))}
@@ -196,9 +256,10 @@ export default function LandingPage() {
                   </div>
                 </FormSection>
 
-                <FormSection step="04" title="Class format" hint={signupType === 'kids' ? 'Not used for Juniors forms' : 'Optional · shapes the form, images & class list'}>
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" role="radiogroup" aria-label="Class format">
-                    <OptionTile group="format" selected={effectiveFormat === ''} onSelect={() => setClassFormat('')} disabled={signupType === 'kids'}>
+                <FormSection step="04" title="Class formats" hint={signupType === 'kids' ? 'Not used for Juniors forms' : 'Optional · select any to shape the form, images & class list'}
+                  action={signupType === 'kids' ? undefined : <SelectAll allSelected={availableFormats.every((format) => effectiveFormats.includes(format))} onToggle={(all) => setFormats(all ? [...availableFormats] : [])} />}>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" role="group" aria-label="Class formats">
+                    <OptionTile group="format" multi selected={effectiveFormats.length === 0} onSelect={() => setFormats([])} disabled={signupType === 'kids'}>
                       <Shuffle className="w-4 h-4 mb-3 text-muted-foreground" />
                       <span className="block text-sm font-semibold">Any format</span>
                       <span className="block text-xs text-muted-foreground mt-0.5">Guest picks in the form</span>
@@ -206,14 +267,14 @@ export default function LandingPage() {
                     {CLASS_FORMATS.map((option) => {
                       const unavailable = signupType === 'kids' || !availableFormats.includes(option.value);
                       return (
-                        <OptionTile key={option.value} group="format" selected={effectiveFormat === option.value} onSelect={() => setClassFormat(option.value)} disabled={unavailable} flush>
+                        <OptionTile key={option.value} group="format" multi selected={effectiveFormats.includes(option.value)} onSelect={() => setFormats((current) => toggle(current.filter((format) => availableFormats.includes(format)), option.value))} disabled={unavailable} flush>
                           <div className="relative h-16 overflow-hidden rounded-t-[11px]">
                             <img src={HERO_IMAGES[option.images[0]]} alt="" className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
                             <div className="absolute inset-0 bg-gradient-to-t from-card via-card/40 to-transparent" />
                           </div>
                           <div className="px-4 pb-4 -mt-2 relative">
                             <span className="block text-sm font-semibold">{option.value}</span>
-                            <span className="block text-xs text-muted-foreground mt-0.5">{unavailable && signupType !== 'kids' ? 'Not at this studio' : option.desc}</span>
+                            <span className="block text-xs text-muted-foreground mt-0.5">{unavailable && signupType !== 'kids' ? 'Not at these studios' : option.desc}</span>
                           </div>
                         </OptionTile>
                       );
@@ -222,16 +283,47 @@ export default function LandingPage() {
                 </FormSection>
 
                 <FormSection step="05" title="Class booking" hint={signupType === 'paid' ? 'Required for paid signups' : 'Optional auto-booking'}>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                    <div>
-                      <Label className={labelClass}>Momence Session ID {signupType === 'paid' ? '*' : '(optional)'}</Label>
-                      <Input inputMode="numeric" value={sessionId} onChange={(e) => setSessionId(e.target.value.replace(/\D/g, ''))}
-                        placeholder={signupType === 'paid' ? 'Required for payment and booking' : 'Auto-book after signup'} className={fieldClass} />
+                  {!singleStudio ? (
+                    <Notice>
+                      {signupType === 'paid'
+                        ? 'Paid signups book one specific class, so select a single studio above.'
+                        : 'Pre-booking a class needs a single studio. With several studios, guests pick their class after signing up.'}
+                    </Notice>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                      <div>
+                        <Label htmlFor="momence-class" className={labelClass}>Momence class {signupType === 'paid' ? '*' : '(optional)'}</Label>
+                        {sessionsState === 'error' ? (
+                          <Input id="momence-class" inputMode="numeric" value={sessionId} onChange={(e) => setSessionId(e.target.value.replace(/\D/g, ''))}
+                            placeholder="Couldn't load classes · enter session ID" className={fieldClass} />
+                        ) : (
+                          <div className="relative">
+                            <select id="momence-class" value={sessionId} onChange={(e) => chooseSession(e.target.value)} disabled={sessionsState === 'loading'}
+                              className={`${fieldClass} w-full rounded-md border px-3 pr-9 appearance-none [color-scheme:dark] disabled:opacity-60`}>
+                              <option value="">{sessionsState === 'loading' ? 'Loading classes from Momence…' : sessions.length ? (signupType === 'paid' ? 'Select a class' : 'No pre-booking · guest picks later') : 'No upcoming classes found'}</option>
+                              {Object.entries(sessionsByDay).map(([day, items]) => (
+                                <optgroup key={day} label={day}>
+                                  {items.map((session) => (
+                                    <option key={session.id} value={session.id} disabled={session.spotsLeft === 0}>
+                                      {sessionTime(session)} · {session.name}{session.teacherName ? ` · ${session.teacherName}` : ''}{session.spotsLeft != null ? ` · ${session.spotsLeft === 0 ? 'Full' : `${session.spotsLeft} left`}` : ''}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ))}
+                            </select>
+                            {sessionsState === 'loading'
+                              ? <Loader2 className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+                              : <ChevronRight className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rotate-90 text-muted-foreground" />}
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed md:pt-7">
+                        {sessionsState === 'error'
+                          ? 'Momence classes could not be loaded right now. You can still paste a session ID.'
+                          : `Showing the next 30 days of ${effectiveFormats.length ? effectiveFormats.join(' / ') : 'all'} classes at ${singleStudio}. Guests are auto-booked into the chosen class after signup.`}
+                      </p>
                     </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed md:pt-7">
-                      Free and paid forms auto-book this exact class after signup. Paid forms require it.
-                    </p>
-                  </div>
+                  )}
                 </FormSection>
               </motion.div>
             </motion.section>
@@ -248,10 +340,11 @@ export default function LandingPage() {
                   <SummaryItem label="Partner" value={influencer.trim() || '—'} span />
                   <SummaryItem label="Event" value={eventTitle.trim() || '—'} span />
                   <SummaryItem label="Flow" value={flow.label} />
-                  <SummaryItem label="City" value={city} />
-                  <SummaryItem label="Studio" value={targetStudio} span />
-                  <SummaryItem label="Format" value={effectiveFormat || 'Any'} />
-                  <SummaryItem label="Session" value={sessionId || (signupType === 'paid' ? 'Required' : 'None')} />
+                  <SummaryItem label="City" value={cities.join(' + ') || '—'} />
+                  <SummaryItem label="Studios" value={studioSummary} span />
+                  <SummaryItem label="Formats" value={effectiveFormats.join(', ') || 'Any'} span />
+                  <SummaryItem label="When" value={eventDate ? new Date(`${eventDate}T${eventTime || '00:00'}`).toLocaleString('en-IN', { day: 'numeric', month: 'short', ...(eventTime ? { hour: 'numeric', minute: '2-digit' } : {}) }) : '—'} />
+                  <SummaryItem label="Class" value={selectedSession ? `${sessionDay(selectedSession)} ${sessionTime(selectedSession)}` : sessionId || (signupType === 'paid' ? 'Required' : 'None')} />
                 </dl>
                 <motion.div whileHover={canGenerate ? { scale: 1.02 } : undefined} whileTap={canGenerate ? { scale: 0.98 } : undefined}>
                   <Button onClick={handleGenerate} disabled={loading || !canGenerate}
@@ -271,7 +364,7 @@ export default function LandingPage() {
                 </p>
               </div>
               <div className="rounded-2xl bg-card/70 border border-border/40 p-5">
-                <ImageCarousel images={carouselImages} label={effectiveFormat ? `${effectiveFormat} heroes` : 'Hero Images'} />
+                <ImageCarousel images={carouselImages} label={effectiveFormats.length ? `${effectiveFormats.join(' + ')} heroes` : 'Hero Images'} />
               </div>
             </motion.aside>
 
@@ -308,28 +401,33 @@ export default function LandingPage() {
   );
 }
 
-function FormSection({ step, title, hint, children }: { step: string; title: string; hint: string; children: React.ReactNode }) {
+function FormSection({ step, title, hint, action, children }: { step: string; title: string; hint: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <motion.section variants={rise}>
       <div className="flex items-baseline gap-3 mb-4 pb-3 border-b border-border/30">
         <span className="text-xs font-bold tabular-nums" style={{ color: '#a855f7' }}>{step}</span>
         <h2 className="text-sm font-semibold uppercase tracking-wider">{title}</h2>
         <span className="ml-auto text-xs text-muted-foreground/70 hidden sm:inline">{hint}</span>
+        {action}
       </div>
       {children}
     </motion.section>
   );
 }
 
-function OptionTile({ group, selected, onSelect, disabled, flush, children }: { group: string; selected: boolean; onSelect: () => void; disabled?: boolean; flush?: boolean; children: React.ReactNode }) {
+function OptionTile({ group, selected, onSelect, disabled, flush, multi, children }: { group: string; selected: boolean; onSelect: () => void; disabled?: boolean; flush?: boolean; multi?: boolean; children: React.ReactNode }) {
   return (
-    <motion.button type="button" role="radio" aria-checked={selected} aria-disabled={disabled} disabled={disabled} onClick={onSelect}
+    <motion.button type="button" role={multi ? 'checkbox' : 'radio'} aria-checked={selected} aria-disabled={disabled} disabled={disabled} onClick={onSelect}
       whileHover={disabled ? undefined : { y: -2 }} whileTap={disabled ? undefined : { scale: 0.98 }}
       className={`group relative text-left rounded-xl border transition-colors ${flush ? '' : 'p-4 pr-8'} ${disabled ? 'opacity-40 cursor-not-allowed border-border/40 bg-muted/10' : selected ? 'border-purple-500/60' : 'border-border/50 bg-muted/20 hover:border-border hover:bg-muted/40'}`}>
-      {selected && !disabled && (
-        <motion.span layoutId={`tile-${group}`} className="absolute inset-0 rounded-[11px] bg-purple-500/[0.1] ring-1 ring-purple-500/40"
-          transition={{ type: 'spring', stiffness: 420, damping: 34 }} />
-      )}
+      <AnimatePresence>
+        {selected && !disabled && (
+          // Single-choice groups slide one highlight between tiles; multi-select tiles fade their own.
+          <motion.span key="highlight" layoutId={multi ? undefined : `tile-${group}`} className="absolute inset-0 rounded-[11px] bg-purple-500/[0.1] ring-1 ring-purple-500/40"
+            initial={multi ? { opacity: 0, scale: 0.96 } : false} animate={{ opacity: 1, scale: 1 }} exit={multi ? { opacity: 0, scale: 0.96 } : undefined}
+            transition={{ type: 'spring', stiffness: 420, damping: 34 }} />
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {selected && !disabled && (
           <motion.span key="check" className="absolute top-3 right-3 z-10" initial={{ scale: 0, rotate: -45 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0 }}>
@@ -339,6 +437,24 @@ function OptionTile({ group, selected, onSelect, disabled, flush, children }: { 
       </AnimatePresence>
       <span className="relative block">{children}</span>
     </motion.button>
+  );
+}
+
+function SelectAll({ allSelected, onToggle, clearLabel = 'Clear' }: { allSelected: boolean; onToggle: (selectAll: boolean) => void; clearLabel?: string }) {
+  return (
+    <button type="button" onClick={() => onToggle(!allSelected)}
+      className="text-[11px] font-semibold uppercase tracking-wider text-purple-400 hover:text-purple-300 transition-colors">
+      {allSelected ? clearLabel : 'Select all'}
+    </button>
+  );
+}
+
+function Notice({ children }: { children: React.ReactNode }) {
+  return (
+    <motion.p initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+      className="flex items-start gap-2.5 rounded-xl border border-border/40 bg-muted/20 px-4 py-3 text-xs text-muted-foreground leading-relaxed">
+      <AlertCircle className="w-4 h-4 shrink-0 text-purple-400" /> {children}
+    </motion.p>
   );
 }
 

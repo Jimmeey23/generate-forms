@@ -15,8 +15,9 @@ export default function ClassSchedule() {
   const { memberId = '' } = useParams(); const [search] = useSearchParams(); const navigate = useNavigate();
   const center = search.get('center') || ''; const initialClassType = search.get('classType') || 'Barre';
   // Forms built for one class format only offer that format's classes.
-  const lockedFormat = search.get('format') || '';
-  const classOptions = lockedFormat ? [lockedFormat] : /kenkere|copper|plash|bengaluru/i.test(center) ? ['Barre'] : ['Barre', 'Strength Lab', 'powerCycle'];
+  const studioOptions = /kenkere|copper|plash|bengaluru/i.test(center) ? ['Barre'] : ['Barre', 'Strength Lab', 'powerCycle'];
+  const lockedFormats = (search.get('format') || '').split(',').filter((format) => studioOptions.includes(format));
+  const classOptions = lockedFormats.length ? lockedFormats : studioOptions;
   const [classType, setClassType] = useState(classOptions.includes(initialClassType) ? initialClassType : classOptions[0]);
   const [sessions, setSessions] = useState<MomenceSession[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
   const [selected, setSelected] = useState<MomenceSession | null>(null); const [fields, setFields] = useState(EMPTY_FIELDS); const [booking, setBooking] = useState(false); const [fieldError, setFieldError] = useState('');

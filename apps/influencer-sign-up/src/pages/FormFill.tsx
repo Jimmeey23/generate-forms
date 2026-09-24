@@ -28,7 +28,7 @@ export default function FormFill() {
       .then(({ form }) => {
         setForm(form as FormData);
         if (form) {
-          captureAttribution(cityFor(form.targetStudio) === 'bengaluru');
+          captureAttribution((form.targetStudios || [form.targetStudio]).every((studio) => cityFor(studio) === 'bengaluru'));
           setFormMetaTags({
             title: form.metadataTitle || form.title || 'Physique 57 Signature Experience',
             description: form.metadataDescription || form.description || '',
@@ -49,7 +49,7 @@ export default function FormFill() {
     if (!form) return;
     setSubmitting(true);
     const center = String(form.targetStudio || responses.center || '');
-    const classType = String(responses.classType || form.classFormat || '');
+    const classType = String(responses.classType || form.classFormats?.[0] || '');
     const { fbp: _fbp, fbc: _fbc, ...attribution } = captureAttribution(cityFor(center) === 'bengaluru');
     startFunnel(
       { email: responses.email, phone: responses.phone, firstName: responses.firstName, lastName: responses.lastName },
@@ -77,7 +77,7 @@ export default function FormFill() {
       }
       if (form.signupType === 'free' && !form.sessionId && result.signup?.memberId) {
         const query = new URLSearchParams({ center, classType: classType || 'Barre' });
-        if (form.classFormat) query.set('format', form.classFormat);
+        if (form.classFormats?.length) query.set('format', form.classFormats.join(','));
         navigate(`/classes/${result.signup.memberId}?${query}`);
         return;
       }
