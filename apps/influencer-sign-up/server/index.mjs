@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
+import { createPaidCheckout, fulfillCheckout, handleStripeWebhook, signupAdult, signupKid } from './momence.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
@@ -18,12 +19,17 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
   auth: { persistSession: false, autoRefreshToken: false },
   realtime: { transport: WebSocket },
 });
-const app = express();
-app.use(express.json({ limit: '1mb' }));
 const asyncRoute = (handler) => async (req, res) => {
   try { await handler(req, res); }
   catch (error) { console.error(error); res.status(500).json({ error: error instanceof Error ? error.message : 'Unexpected server error' }); }
 };
+const app = express();
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), asyncRoute(async (req, res) => {
+  const signature = req.get('stripe-signature');
+  if (!signature) return res.status(400).json({ error: 'Missing Stripe signature header.' });
+  res.json(await handleStripeWebhook(req.body, signature));
+}));
+app.use(express.json({ limit: '1mb' }));
 
 const HERO_IMAGES = [
   'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/s9wMadXfeYFPAp7MyaEAgr/pasted-image-1782902048664-tp5ozxot.jpg',
@@ -47,6 +53,31 @@ const TEMPLATE_FIELDS = [
   { id: 'classType', type: 'select', label: 'Class Format', placeholder: 'Choose a class', required: true, gridCol: 'full', helperText: 'Not sure? Try our signature Barre class', options: ['Barre', 'Strength Lab', 'powerCycle'] },
   { id: 'terms', type: 'terms', label: 'I agree to the Terms & Conditions and Privacy Policy of Physique 57', required: true, gridCol: 'full' },
 ];
+const SIGNATURE_FIELDS = [
+  { id: 'signatureName', type: 'text', label: 'Signature name', placeholder: 'Enter your full legal name', required: true, gridCol: 'full' },
+  { id: 'signatureRealSignature', type: 'signature', label: 'Drawn signature', required: true, gridCol: 'full', helperText: 'Sign with your finger, stylus, trackpad, or mouse.' },
+  { id: 'waiverAccepted', type: 'terms', label: 'I have read, signed, and accept the waiver and Physique 57 India privacy terms.', required: true, gridCol: 'full' },
+];
+function fieldsForSignupType(signupType, targetStudio) {
+  const studio = String(targetStudio || FALLBACK_CENTER);
+  const adult = TEMPLATE_FIELDS.filter((field) => !['center', 'terms'].includes(field.id)).map((field) => field.id === 'classType' ? { ...field, options: getClassOptions(studio) } : field);
+  const common = [...adult.slice(0, 4), { id: 'center', type: 'select', label: 'Studio', required: true, gridCol: 'full', options: [studio] }];
+  if (signupType === 'kids') return [
+    ...common,
+    { id: 'childName', type: 'text', label: "Child's full name", required: true, gridCol: 'full' },
+    { id: 'childAge', type: 'number', label: "Child's age", required: true, gridCol: 'half', min: 5, max: 17 },
+    { id: 'childDateOfBirth', type: 'date', label: "Child's date of birth", required: true, gridCol: 'half' },
+    { id: 'batch', type: 'text', label: 'Preferred Juniors class / batch', placeholder: 'Optional preference', required: false, gridCol: 'full' },
+    ...SIGNATURE_FIELDS.map((field) => field.id === 'signatureName' ? { ...field, label: 'Parent/guardian signature name' } : field),
+  ];
+  return [...common, adult.find((field) => field.id === 'classType'), ...SIGNATURE_FIELDS].filter(Boolean);
+}
+function getClassOptions(studio) {
+  const value = String(studio || '').toLowerCase();
+  if (value.includes('supreme')) return ['Barre', 'powerCycle'];
+  if (value.includes('kenkere') || value.includes('copper') || value.includes('sadashivnagar')) return ['Barre'];
+  return ['Barre', 'Strength Lab', 'powerCycle'];
+}
 function extractName(prompt) {
   const match = prompt.match(/(?:influencer|partner)[:\s]+([^|]+)/i);
   if (match) return match[1].trim();
@@ -105,6 +136,7 @@ function publicForm(record, req) {
     influencerName: data.influencerName || '', eventName: data.eventName || '', metadataTitle: normalizeTitle(data.metadataTitle || title),
     metadataDescription: data.metadataDescription || record.description || '', formWidth: data.formWidth || 480, formMinHeight: data.formMinHeight || 0,
     formBorderRadius: data.formBorderRadius ?? 16, formPadding: data.formPadding ?? 40, boldLabels: data.boldLabels || false,
+    signupType: data.signupType || 'free', targetStudio: data.targetStudio || '', sessionId: data.sessionId || '',
   };
 }
 
@@ -120,6 +152,10 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const influencerName = extractPromptValue(prompt, 'Influencer/Partner');
   const eventName = extractPromptValue(prompt, 'Event');
   const details = extractPromptValue(prompt, 'Details');
+  const signupType = ['kids', 'free', 'paid'].includes(req.body.signupType) ? req.body.signupType : 'free';
+  const targetStudio = String(req.body.targetStudio || FALLBACK_CENTER).trim();
+  const sessionId = String(req.body.sessionId || '').trim();
+  if (signupType === 'paid' && !/^\d+$/.test(sessionId)) return res.status(400).json({ error: 'Paid signup forms require a valid Momence session ID.' });
   const influencerSlug = campaignName.toLowerCase().replace(/\s+/g, '_') || 'general';
   const seed = hashString(prompt.toLowerCase());
   const experienceName = eventName || `${influencerName || campaignName} Signature Experience`;
@@ -128,7 +164,7 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const peopleCopy = influencerName ? ` with ${influencerName}` : '';
   const description = details || `Join ${experienceName}${peopleCopy} for a signature Physique 57 experience designed to move, challenge, and connect.`;
   const metadataDescription = `${experienceName}${peopleCopy} — reserve your place for this Physique 57 signature experience.`;
-  const formData = { fields: TEMPLATE_FIELDS, layout: 'stacked', heroImage: HERO_IMAGES[(seed >>> 4) % HERO_IMAGES.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: ACCENT_COLORS[(seed >>> 22) % ACCENT_COLORS.length], formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: influencerSlug, utmChannel: `${prompt.toLowerCase().includes('instagram') ? 'social' : 'influencer'}_${influencerSlug}`, utmCampaign: influencerSlug, hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
+  const formData = { fields: fieldsForSignupType(signupType, targetStudio), signupType, targetStudio, sessionId, layout: 'stacked', heroImage: HERO_IMAGES[(seed >>> 4) % HERO_IMAGES.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: ACCENT_COLORS[(seed >>> 22) % ACCENT_COLORS.length], formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: influencerSlug, utmChannel: `${prompt.toLowerCase().includes('instagram') ? 'social' : 'influencer'}_${influencerSlug}`, utmCampaign: influencerSlug, hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
   const slug = await createUniqueSlug(eventName || influencerName || campaignName);
   const { data, error } = await supabase.from('forms').insert({ title, description, slug, form_data: formData, theme_color: 'midnight', status: 'Draft', creator_email: req.body.creatorEmail || '' }).select().single();
   if (error) throw error;
@@ -193,6 +229,7 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   const { data: form, error: formError } = await supabase.from('forms').select('*').eq('id', req.params.id).single();
   if (formError) throw formError;
   const formData = form.form_data || {};
+  if (!responses.signatureRealSignature || !responses.waiverAccepted) return res.status(400).json({ error: 'A drawn signature and waiver acceptance are required.' });
   const utmSource = formData.utmSource || req.body.utmSource || '';
   const utmChannel = formData.utmChannel || req.body.utmChannel || '';
   const utmCampaign = formData.utmCampaign || req.body.utmCampaign || '';
@@ -201,6 +238,11 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   const { error: countError } = await supabase.rpc('increment_form_submission_count', { target_form_id: req.params.id });
   if (countError) console.error('Submission saved, but count update failed:', countError.message);
   const rawCenter = String(responses.center || '').trim();
+  const operationalForm = { id: form.id, slug: form.slug, signupType: formData.signupType || 'free', targetStudio: formData.targetStudio || rawCenter, sessionId: formData.sessionId || '' };
+  // Adult flow follows the reference order: member -> waivers -> membership/booking -> lead.
+  // Juniors captures the lead even when account provisioning later needs studio follow-up.
+  let signup = null;
+  if (operationalForm.signupType !== 'kids') signup = await signupAdult(responses, operationalForm);
   const config = CENTER_CONFIG[rawCenter.toLowerCase()] || CENTER_CONFIG[FALLBACK_CENTER.toLowerCase()];
   let webhookStatus = 'NOT_CONFIGURED';
   if (config.hostId && config.token && config.sourceId) {
@@ -216,7 +258,16 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
       if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
     }
   }
-  res.status(201).json({ success: true, submissionId: submission.id, webhookStatus });
+  if (operationalForm.signupType === 'kids') signup = await signupKid(responses, operationalForm);
+  let checkoutUrl = null;
+  if (signup.paymentRequired) checkoutUrl = await createPaidCheckout({ memberId: signup.memberId, form: operationalForm, origin: (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '') });
+  res.status(201).json({ success: true, submissionId: submission.id, webhookStatus, signup, checkoutUrl });
+}));
+
+app.get('/api/payments/confirm', asyncRoute(async (req, res) => {
+  const checkoutSessionId = String(req.query.checkout_session_id || '').trim();
+  if (!checkoutSessionId) return res.status(400).json({ error: 'checkout_session_id is required' });
+  res.json({ success: true, booking: await fulfillCheckout(checkoutSessionId) });
 }));
 
 const distPath = path.resolve(__dirname, '../dist');

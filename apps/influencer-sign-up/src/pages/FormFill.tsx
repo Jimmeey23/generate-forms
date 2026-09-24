@@ -46,13 +46,17 @@ export default function FormFill() {
     if (!form) return;
     setSubmitting(true);
     try {
-      await submitForm({
+      const result = await submitForm({
         formId: form.id,
         responses,
         utmSource: form.utmSource || '',
         utmChannel: form.utmChannel || '',
         utmCampaign: form.utmCampaign || '',
       });
+      if (result.checkoutUrl) {
+        window.location.assign(result.checkoutUrl);
+        return;
+      }
       const center = (responses.center || '').toString().toLowerCase();
       const city = center.includes('bengaluru') || center.includes('copper') || center.includes('kenkere')
         ? 'bengaluru' : 'mumbai';

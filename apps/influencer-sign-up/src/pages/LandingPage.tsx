@@ -14,6 +14,9 @@ export default function LandingPage() {
   const [influencer, setInfluencer] = useState('');
   const [eventTitle, setEventTitle] = useState('');
   const [eventDetails, setEventDetails] = useState('');
+  const [signupType, setSignupType] = useState<'kids' | 'free' | 'paid'>('free');
+  const [targetStudio, setTargetStudio] = useState('Kwality House, Kemps Corner');
+  const [sessionId, setSessionId] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -25,7 +28,11 @@ export default function LandingPage() {
     setLoading(true);
     try {
       const prompt = [influencer.trim() && `Influencer/Partner: ${influencer.trim()}`, eventTitle.trim() && `Event: ${eventTitle.trim()}`, eventDetails.trim() && `Details: ${eventDetails.trim()}`].filter(Boolean).join(' | ');
-      const { form } = await generateForm({ prompt, creatorEmail: '' });
+      if (signupType === 'paid' && !/^\d+$/.test(sessionId.trim())) {
+        toast.error('Paid signups require a valid Momence session ID');
+        return;
+      }
+      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudio, sessionId: sessionId.trim() });
       toast.success('Form created!');
       navigate(`/form/${form.id}/preview`);
     } catch (error) {
@@ -127,6 +134,23 @@ export default function LandingPage() {
                         <Textarea value={eventDetails} onChange={(e) => setEventDetails(e.target.value)}
                           placeholder="Venue, date, time, any special notes..."
                           rows={4} className="resize-none bg-muted/30 border-border/50 focus:border-orange-500/40 transition-colors text-xs" />
+                      </div>
+                      <div>
+                        <Label className="text-xs uppercase tracking-wider mb-2 block font-extrabold text-primary">Signup flow *</Label>
+                        <select value={signupType} onChange={(e) => setSignupType(e.target.value as 'kids' | 'free' | 'paid')} className="h-12 w-full rounded-md bg-muted/30 border border-border/50 px-3 text-xs">
+                          <option value="kids">Kids / Juniors signup</option><option value="free">Regular free signup</option><option value="paid">Paid signup</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label className="text-xs uppercase tracking-wider mb-2 block font-extrabold text-primary">Studio *</Label>
+                        <select value={targetStudio} onChange={(e) => setTargetStudio(e.target.value)} className="h-12 w-full rounded-md bg-muted/30 border border-border/50 px-3 text-xs">
+                          {['Kwality House, Kemps Corner','Supreme HQ, Bandra','Kenkere House, Bengaluru','The Studio by Copper & Cloves, Bengaluru','Sadashivnagar, Bengaluru'].map((studio) => <option key={studio}>{studio}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <Label className="text-xs uppercase tracking-wider mb-2 block font-extrabold text-primary">Momence Session ID {signupType === 'paid' ? '*' : '(optional)'}</Label>
+                        <Input inputMode="numeric" value={sessionId} onChange={(e) => setSessionId(e.target.value.replace(/\D/g, ''))} placeholder={signupType === 'paid' ? 'Required for payment and booking' : 'Auto-book after signup'} className="h-12 bg-muted/30 border-border/50 text-xs" />
+                        <p className="mt-1.5 text-[10px] text-muted-foreground">Free and paid forms auto-book this exact class after signup. Paid forms require it.</p>
                       </div>
                     </div>
 

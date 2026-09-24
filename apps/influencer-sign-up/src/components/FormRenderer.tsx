@@ -14,6 +14,7 @@ import { getTheme } from '@/lib/colors';
 import { BRAND_LOGO } from '@/lib/constants';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
+import SignaturePad from './SignaturePad';
 
 export type FormField = {
   id: string;
@@ -99,7 +100,7 @@ export default function FormRenderer({ form, preview, onSubmit, submitting }: {
   form: FormDataType; preview?: boolean;
   onSubmit?: (responses: Record<string, any>) => void; submitting?: boolean;
 }) {
-  const [values, setValues] = useState<Record<string, any>>({});
+  const [values, setValues] = useState<Record<string, any>>(() => Object.fromEntries(form.fields.filter((field) => field.type === 'select' && field.options?.length === 1).map((field) => [field.id, field.options![0]])));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isDark, setIsDark] = useState(true);
   const theme = getTheme(form.themeColor);
@@ -119,6 +120,11 @@ export default function FormRenderer({ form, preview, onSubmit, submitting }: {
     });
     if (errors[id]) setErrors((prev) => ({ ...prev, [id]: '' }));
   };
+
+  useEffect(() => {
+    const fullName = [values.firstName, values.lastName].filter(Boolean).join(' ').trim();
+    if (fullName && !values.signatureName) setValues((current) => ({ ...current, signatureName: fullName }));
+  }, [values.firstName, values.lastName]);
 
   const validate = () => {
     const errs: Record<string, string> = {};
@@ -576,6 +582,10 @@ function FieldRenderer({ field, value, onChange, error, bold }: { field: FormFie
   if (field.id === 'classType' && field.type === 'select') return <ClassTypePicker field={field} value={value} onChange={onChange} error={error} />;
 
   const labelClass = `text-xs uppercase tracking-wider ${bold ? 'font-bold' : 'font-medium'}`;
+
+  if (field.type === 'signature') {
+    return <div className="space-y-1.5"><Label className={labelClass} style={{ color: 'hsl(var(--form-text-secondary))' }}>{field.label}<span className="text-red-400 ml-0.5">*</span></Label><SignaturePad value={value} onChange={onChange} />{field.helperText && <p className="text-[11px]" style={{ color: 'hsl(var(--form-text-muted))' }}>{field.helperText}</p>}{error && <p className="text-xs" style={{ color: 'hsl(var(--form-error))' }}>{error}</p>}</div>;
+  }
 
   if (field.type === 'terms') {
     return (

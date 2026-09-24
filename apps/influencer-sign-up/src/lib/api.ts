@@ -7,6 +7,7 @@ export type FormRecord = {
   logoUrl: string; influencerName: string; eventName: string; metadataTitle: string; metadataDescription: string;
   formWidth: number; formMinHeight: number; formBorderRadius: number; formPadding: number; boldLabels: boolean;
   accentColor: string; heroScale: number;
+  signupType: 'kids' | 'free' | 'paid'; targetStudio: string; sessionId: string;
 };
 export type SubmissionRecord = { id: string; responses: Record<string, any>; submitterEmail: string; submittedAt: string };
 export type GetFormOutputType = { form: FormRecord | null };
@@ -22,7 +23,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return response.json();
 }
 
-export const generateForm = (input: { prompt: string; creatorEmail?: string }) => request<{ form: FormRecord }>('/api/generate-form', { method: 'POST', body: JSON.stringify(input) });
+export const generateForm = (input: { prompt: string; creatorEmail?: string; signupType: 'kids' | 'free' | 'paid'; targetStudio: string; sessionId?: string }) => request<{ form: FormRecord }>('/api/generate-form', { method: 'POST', body: JSON.stringify(input) });
 export const getForms = (input: { creatorEmail?: string }) => request<GetFormsOutputType>(`/api/forms${input.creatorEmail ? `?creatorEmail=${encodeURIComponent(input.creatorEmail)}` : ''}`);
 export const getForm = (input: { id?: string; slug?: string }) => request<GetFormOutputType>(`/api/forms/${encodeURIComponent(input.id || input.slug || '')}${input.slug ? '?by=slug' : ''}`);
 export const updateForm = (input: { id: string; [key: string]: any }) => {
@@ -33,5 +34,6 @@ export const deleteForm = (input: { id: string }) => request<{ success: boolean 
 export const getSubmissions = (input: { formId: string }) => request<GetSubmissionsOutputType>(`/api/forms/${encodeURIComponent(input.formId)}/submissions`);
 export const submitForm = (input: { formId: string; responses: Record<string, any>; utmSource?: string; utmChannel?: string; utmCampaign?: string }) => {
   const { formId, ...body } = input;
-  return request<{ success: boolean; submissionId: string; webhookStatus: string }>(`/api/forms/${encodeURIComponent(formId)}/submissions`, { method: 'POST', body: JSON.stringify(body) });
+  return request<{ success: boolean; submissionId: string; webhookStatus: string; checkoutUrl?: string | null }>(`/api/forms/${encodeURIComponent(formId)}/submissions`, { method: 'POST', body: JSON.stringify(body) });
 };
+export const confirmPayment = (checkoutSessionId: string) => request<{ success: boolean; booking: { memberId: number; sessionId: number } }>(`/api/payments/confirm?checkout_session_id=${encodeURIComponent(checkoutSessionId)}`);
