@@ -8,6 +8,7 @@ import FormExtras from '@/components/FormExtras';
 import { setFormMetaTags, resetMetaTags } from '@/lib/setMetaTags';
 import { captureAttribution } from '@/lib/attribution';
 import { cityFor, saveSignupDetails } from '@/lib/signupDetails';
+import { BRAND_LOGO, isBrandLogo } from '@/lib/constants';
 
 type FormData = NonNullable<GetFormOutputType['form']>;
 
@@ -39,10 +40,10 @@ export default function FormFill() {
         if (form) {
           captureAttribution((form.targetStudios || [form.targetStudio]).every((studio) => cityFor(studio) === 'bengaluru'));
           setFormMetaTags({
-            title: form.metadataTitle || form.title || 'Physique 57 Signature Experience',
-            description: form.metadataDescription || form.description || '',
-            image: (form as any).heroImage || undefined,
-            logo: form.logoUrl || undefined,
+            title: form.title || form.metadataTitle || 'Physique 57 Signature Experience',
+            description: form.description || form.metadataDescription || '',
+            image: form.heroImage ? new URL(form.heroImage, window.location.origin).href : undefined,
+            logo: isBrandLogo(form.logoUrl) ? BRAND_LOGO : form.logoUrl,
             url: window.location.href,
           });
         }

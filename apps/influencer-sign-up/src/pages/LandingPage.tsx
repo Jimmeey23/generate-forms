@@ -40,10 +40,6 @@ const shortStudio = (studio: string) => studio.split(',')[0];
 const sessionKey = (session: StudioSession) => `${session.studio}|${session.id}`;
 const sessionDay = (session: StudioSession) => new Date(session.startsAt).toLocaleDateString('en-IN', { ...IST, weekday: 'short', day: 'numeric', month: 'short' });
 const sessionTime = (session: StudioSession) => new Date(session.startsAt).toLocaleTimeString('en-IN', { ...IST, hour: 'numeric', minute: '2-digit' });
-const istParts = (iso: string) => {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { ...IST, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(iso)).map((part) => [part.type, part.value]));
-  return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
-};
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 const stagger: Variants = { hidden: {}, show: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } } };
@@ -101,12 +97,8 @@ export default function LandingPage() {
   const manualBooking = sessionsState === 'error';
   const sessionId = manualBooking ? manualId : selectedSession ? String(selectedSession.id) : '';
   const sessionStudio = manualBooking ? (studios.includes(manualStudio) ? manualStudio : studios[0]) : selectedSession?.studio || '';
-  const chooseSession = (key: string) => {
-    setSelectedKey(key);
-    const session = sessions.find((item) => sessionKey(item) === key);
-    // Pre-fill the event schedule from the class unless the organiser already set one.
-    if (session && !eventDate && !eventTime) { const { date, time } = istParts(session.startsAt); setEventDate(date); setEventTime(time); }
-  };
+  // The class never fills the event date/time; the hero shows only what the organiser types.
+  const chooseSession = (key: string) => setSelectedKey(key);
 
   const cities = STUDIOS_BY_CITY.filter((group) => group.studios.some((studio) => studios.includes(studio))).map((group) => group.city);
   const studioSummary = studios.length === ALL_STUDIOS.length ? 'All studios' : studios.length === 1 ? studios[0] : `${studios.length} studios`;

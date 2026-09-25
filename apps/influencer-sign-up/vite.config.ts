@@ -17,6 +17,7 @@ const serverOnlyDependencies = new Set([
   'concurrently',
   'dotenv',
   'express',
+  'googleapis',
   'morgan',
   'ws',
 ]);

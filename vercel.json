@@ -6,7 +6,7 @@
     { "source": "/api/:path*", "destination": "/api/index" },
     { "source": "/dashboard", "destination": "/index.html" },
     { "source": "/form/:path*", "destination": "/index.html" },
-    { "source": "/f/:path*", "destination": "/index.html" },
+    { "source": "/f/:path*", "destination": "/api/index" },
     { "source": "/success", "destination": "/index.html" }
   ]
 }

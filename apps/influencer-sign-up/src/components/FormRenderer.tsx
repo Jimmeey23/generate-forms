@@ -249,12 +249,33 @@ function HashtagBadge({ tag, size = 'sm', badgeStyle = 'neon', position = 'cente
   );
 }
 
+/* ── Animated Title: words rise out of a blur one after another ── */
+function AnimatedTitle({ text, className, style, delay = 0.25 }: { text: string; className?: string; style?: React.CSSProperties; delay?: number }) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  return (
+    <motion.h1 className={className} style={style} aria-label={text}
+      initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.08, delayChildren: delay } } }}>
+      {words.map((word, i) => (
+        <span key={i} aria-hidden className="inline-block overflow-hidden align-bottom pb-[0.08em] -mb-[0.08em]">
+          <motion.span className="inline-block"
+            variants={{ hidden: { y: '100%', opacity: 0, filter: 'blur(8px)' }, show: { y: '0%', opacity: 1, filter: 'blur(0px)', transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] } } }}>
+            {word}
+          </motion.span>
+          {i < words.length - 1 && '\u00a0'}
+        </span>
+      ))}
+      <motion.span aria-hidden className="block h-[3px] mt-3 rounded-full origin-left w-16" style={{ background: 'var(--form-accent)' }}
+        initial={{ scaleX: 0, opacity: 0 }} animate={{ scaleX: 1, opacity: 1 }} transition={{ delay: delay + 0.08 * words.length + 0.2, duration: 0.6, ease: [0.16, 1, 0.3, 1] }} />
+    </motion.h1>
+  );
+}
+
 /* ── Theme Toggle ── */
-function ThemeToggle() {
+function ThemeToggle({ side = 'right' }: { side?: 'left' | 'right' }) {
   const { dark, toggle } = useFormTheme();
   return (
-    <motion.button type="button" onClick={toggle} whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
-      className="absolute top-4 right-4 z-30 w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md bg-white/10 hover:bg-white/20 transition-colors">
+    <motion.button type="button" onClick={toggle} whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} aria-label="Toggle theme"
+      className={`absolute top-4 ${side === 'left' ? 'left-4' : 'right-4'} z-30 w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md bg-white/10 hover:bg-white/20 transition-colors`}>
       <AnimatePresence mode="wait">
         {dark ? (
           <motion.div key="sun" initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 90, opacity: 0 }} transition={{ duration: 0.2 }}><Sun className="w-4 h-4 text-white/80" /></motion.div>
@@ -318,28 +339,32 @@ function StackedLayout({ form, theme, values, errors, setValue, onSubmit, submit
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7 }}
       className="overflow-hidden shadow-2xl relative"
       style={{ background: 'hsl(var(--form-card))', border: '1px solid hsl(var(--form-card-border))', borderRadius: `${br}px` }}>
-      <ThemeToggle />
+      <ThemeToggle side="left" />
+      {/* The logo is pinned to the form's top-right corner, above the hero. */}
+      <div className="absolute top-4 right-4 z-30">
+        <BrandLogo onDarkBg size={form.logoSize || 'md'} position="right" invert={form.logoInvert} logoUrl={form.logoUrl} />
+      </div>
       {form.heroImage ? (
         <div className="relative overflow-hidden" style={{ height: `${form.heroHeight || 420}px` }}>
           <motion.img src={form.heroImage} alt="" className="w-full h-full"
             style={{ objectFit: 'cover', objectPosition: heroPos(form) }}
             initial={{ scale: Math.max(1.15, form.heroScale || 1) }} animate={{ scale: form.heroScale || 1 }} transition={{ duration: 2, ease: [0.16, 1, 0.3, 1] }} />
           <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-black/10" />
-          <div className="absolute inset-0 flex flex-col items-center justify-end p-8 pb-12 text-center">
-            <BrandLogo onDarkBg size={form.logoSize || 'lg'} position={form.logoPosition} invert={form.logoInvert} logoUrl={form.logoUrl} />
-            <motion.h1 initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-              className="text-3xl md:text-4xl font-bold tracking-tight mt-5 text-white" style={{ fontFamily: "'Playfair Display', serif" }}>{form.title}</motion.h1>
-            {form.description && <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}
-              className="mt-2 text-white/55 text-sm md:text-base max-w-lg leading-relaxed tracking-wide">{form.description}</motion.p>}
-            <HashtagBadge tag={form.hashtag || ''} size={form.hashtagSize} badgeStyle={form.hashtagStyle} position={form.hashtagPosition} />
+          {/* Keeps the pinned logo legible over bright photos. */}
+          <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/60 to-transparent" />
+          <div className="absolute inset-0 flex flex-col items-start justify-end p-8 pb-12 text-left">
+            <AnimatedTitle text={form.title} className="text-3xl md:text-4xl font-bold tracking-tight text-white" style={{ fontFamily: "'Playfair Display', serif" }} />
+            {form.description && <motion.p initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7, duration: 0.6 }}
+              className="mt-3 text-white/60 text-sm md:text-base max-w-lg leading-relaxed tracking-wide">{form.description}</motion.p>}
+            <HashtagBadge tag={form.hashtag || ''} size={form.hashtagSize} badgeStyle={form.hashtagStyle} position="left" />
           </div>
         </div>
       ) : (
-        <div className={`bg-gradient-to-br ${theme.gradient} p-14 text-white text-center relative`}>
-          <BrandLogo onDarkBg size={form.logoSize || 'lg'} position={form.logoPosition} invert={form.logoInvert} logoUrl={form.logoUrl} />
-          <h1 className="text-3xl md:text-4xl font-bold mt-5" style={{ fontFamily: "'Playfair Display', serif" }}>{form.title}</h1>
-          {form.description && <p className="mt-3 text-white/55 text-base max-w-lg mx-auto tracking-wide">{form.description}</p>}
-          <HashtagBadge tag={form.hashtag || ''} size={form.hashtagSize} badgeStyle={form.hashtagStyle} position={form.hashtagPosition} />
+        <div className={`bg-gradient-to-br ${theme.gradient} p-14 pt-28 text-white text-left relative`}>
+          <AnimatedTitle text={form.title} className="text-3xl md:text-4xl font-bold" style={{ fontFamily: "'Playfair Display', serif" }} />
+          {form.description && <motion.p initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7, duration: 0.6 }}
+            className="mt-3 text-white/60 text-base max-w-lg tracking-wide">{form.description}</motion.p>}
+          <HashtagBadge tag={form.hashtag || ''} size={form.hashtagSize} badgeStyle={form.hashtagStyle} position="left" />
         </div>
       )}
       <FormSection form={form} onSubmit={onSubmit} values={values} errors={errors} setValue={setValue} submitting={submitting} />

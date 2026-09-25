@@ -90,7 +90,8 @@ function getClassOptions(studio) {
   return ['Barre', 'Strength Lab', 'powerCycle'];
 }
 function formatEventWhen(date, time) {
-  if (!date) return '';
+  // Only what the organiser entered is shown: date and time, either one alone, or nothing.
+  if (!date) return time ? new Date(`1970-01-01T${time}:00+05:30`).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '';
   const value = new Date(`${date}T${time || '00:00'}:00+05:30`);
   const day = value.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Kolkata' });
   return time ? `${day}, ${value.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' })}` : day;
@@ -207,7 +208,10 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const eventDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.eventDate || '')) ? req.body.eventDate : '';
   const eventTime = /^\d{2}:\d{2}$/.test(String(req.body.eventTime || '')) ? req.body.eventTime : '';
   const eventVenue = String(req.body.eventVenue || '').trim().slice(0, 300);
-  const influencerSlug = campaignName.toLowerCase().replace(/\s+/g, '_') || 'general';
+  // UTMs carry the host and event names as entered, with no fixed "influencer" prefix.
+  const utmSlug = (value) => String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  const hostSlug = utmSlug(influencerName || campaignName);
+  const eventSlug = utmSlug(eventName);
   const seed = hashString(prompt.toLowerCase());
   const experienceName = eventName || `${influencerName || campaignName} Signature Experience`;
   const partnerName = influencerName || eventName || campaignName;
@@ -217,11 +221,12 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const experienceKind = classFormats.length ? `Physique 57 ${classFormats.join(' & ')}` : 'signature Physique 57';
   const whenCopy = formatEventWhen(eventDate, eventTime);
   const whereCopy = eventVenue || (targetStudio ? targetStudio : '');
-  const logistics = [whenCopy && `on ${whenCopy}`, whereCopy && `at ${whereCopy}`].filter(Boolean).join(' ');
+  const logistics = [whenCopy && `${eventDate ? 'on' : 'at'} ${whenCopy}`, whereCopy && `at ${whereCopy}`].filter(Boolean).join(' ');
   const description = details || `Join ${experienceName}${peopleCopy}${logistics ? ` ${logistics}` : ''} for a ${experienceKind} experience designed to move, challenge, and connect.`;
-  const metadataDescription = `${experienceName}${peopleCopy} — reserve your place for this ${experienceKind} experience.`;
+  // Link previews show the event's own details, not generic app copy.
+  const metadataDescription = description;
   const heroPool = classFormats.length ? classFormats.flatMap((format) => FORMAT_HERO_INDEXES[format]).map((index) => HERO_IMAGES[index]) : HERO_IMAGES;
-  const formData = { fields: fieldsForSignupType(signupType, targetStudios, classFormats), signupType, targetStudio, targetStudios, sessionId, sessionStudio, classFormat, classFormats, eventDate, eventTime, eventVenue, layout: 'stacked', heroImage: heroPool[(seed >>> 4) % heroPool.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: BRAND_ACCENT, formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: influencerSlug, utmChannel: `${prompt.toLowerCase().includes('instagram') ? 'social' : 'influencer'}_${influencerSlug}`, utmCampaign: influencerSlug, hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
+  const formData = { fields: fieldsForSignupType(signupType, targetStudios, classFormats), signupType, targetStudio, targetStudios, sessionId, sessionStudio, classFormat, classFormats, eventDate, eventTime, eventVenue, layout: 'stacked', heroImage: heroPool[(seed >>> 4) % heroPool.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: BRAND_ACCENT, formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: hostSlug || eventSlug || 'general', utmChannel: eventSlug || hostSlug || 'general', utmCampaign: eventSlug || hostSlug || 'general', hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
   const slug = await createUniqueSlug(eventName || influencerName || campaignName);
   const { data, error } = await supabase.from('forms').insert({ title, description, slug, form_data: formData, theme_color: 'midnight', status: 'Draft', creator_email: req.body.creatorEmail || '' }).select().single();
   if (error) throw error;
@@ -410,19 +415,28 @@ app.post('/api/momence/select-class', asyncRoute(async (req, res) => {
 const distPath = path.resolve(__dirname, '../dist');
 app.use(express.static(distPath));
 const escapeAttribute = (value) => String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// On Vercel the built index.html may not ship with the function, so fall back to the static copy.
+async function appShell(appUrl) {
+  try { return await readFile(path.join(distPath, 'index.html'), 'utf8'); }
+  catch { const response = await fetch(`${appUrl}/index.html`); if (!response.ok) throw new Error(`Could not load app shell (${response.status}).`); return response.text(); }
+}
 app.get('/f/:slug', asyncRoute(async (req, res) => {
   const { data, error } = await supabase.from('forms').select('*').eq('slug', req.params.slug).maybeSingle();
   if (error) throw error;
-  const html = await readFile(path.join(distPath, 'index.html'), 'utf8');
+  const appUrl = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+  const html = await appShell(appUrl);
   if (!data) return res.status(404).send(html);
   const form = publicForm(data, req);
-  const title = escapeAttribute(form.metadataTitle || form.title);
-  const description = escapeAttribute(form.metadataDescription || form.description);
-  const image = escapeAttribute(form.heroImage);
-  const logo = escapeAttribute(form.logoUrl);
+  const title = escapeAttribute(form.title || form.metadataTitle);
+  const description = escapeAttribute(form.description || form.metadataDescription);
+  // The hero photo is the preview image; the logo (brand or custom partner) is the site icon.
+  const image = escapeAttribute(form.heroImage ? new URL(form.heroImage, appUrl).href : `${appUrl}/brand/physique57-logo.png`);
+  const logoUrl = !form.logoUrl || form.logoUrl === BRAND_LOGO || form.logoUrl.startsWith('/brand/') ? `${appUrl}/brand/physique57-logo.png` : new URL(form.logoUrl, appUrl).href;
+  const logo = escapeAttribute(logoUrl);
   const url = escapeAttribute(form.shareUrl);
-  const metadata = `<title>${title}</title><meta name="description" content="${description}"><meta property="og:title" content="${title}"><meta property="og:description" content="${description}"><meta property="og:type" content="website"><meta property="og:url" content="${url}"><meta property="og:image" content="${image}"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${description}"><meta name="twitter:image" content="${image}"><link rel="icon" href="${logo}">`;
-  res.send(html.replace(/<title>.*?<\/title>/, '').replace('</head>', `${metadata}</head>`));
+  const metadata = `<title>${title}</title><meta name="description" content="${description}"><meta property="og:site_name" content="Physique 57 India"><meta property="og:title" content="${title}"><meta property="og:description" content="${description}"><meta property="og:type" content="website"><meta property="og:url" content="${url}"><meta property="og:image" content="${image}"><meta property="og:image:alt" content="${title}"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${description}"><meta name="twitter:image" content="${image}"><link rel="icon" href="${logo}"><link rel="apple-touch-icon" href="${logo}">`;
+  res.set('Cache-Control', 'public, max-age=0, s-maxage=300');
+  res.send(html.replace(/<title>.*?<\/title>/, '').replace(/<link rel="icon"[^>]*>/, '').replace('</head>', `${metadata}</head>`));
 }));
 app.get('*', (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
 if (!process.env.VERCEL) app.listen(port, () => console.log(`Supabase API listening on http://localhost:${port}`));

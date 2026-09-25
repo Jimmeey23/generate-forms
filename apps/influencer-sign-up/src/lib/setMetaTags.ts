@@ -55,7 +55,7 @@ export function setFormMetaTags(opts: {
 }
 
 export function resetMetaTags() {
-  document.title = 'Form Builder';
+  document.title = 'Physique 57 India';
   const props = ['og:title', 'og:description', 'og:url', 'og:type', 'og:image'];
   props.forEach(p => {
     document.querySelector(`meta[property="${p}"]`)?.remove();
