@@ -43,9 +43,24 @@ const HERO_IMAGES = [
   'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/61eCRLbFKFPwoowdwvvaH2/pasted-image-1782902048789-09kcsqk1.jpg',
   'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/n3WfwNPSpc7hXetukVhWZc/pasted-image-1782902048806-m84p5gkd.jpg',
   'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/hE8EfAKjgiatvJCWPRN311/pasted-image-1782902134354-vxs5bt0r.jpg',
+  // Studio photography served from public/Heroes (optimised copies of the originals).
+  '/Heroes/opt/barre.jpg',
+  '/Heroes/opt/barre1.jpg',
+  '/Heroes/opt/barre3.jpg',
+  '/Heroes/opt/cycle.jpg',
+  '/Heroes/opt/cycle1.jpg',
+  '/Heroes/opt/cycle3.jpg',
+  '/Heroes/opt/strength.jpg',
+  '/Heroes/opt/strength9.jpg',
+  '/Heroes/opt/kids.jpg',
+  '/Heroes/opt/kids1.jpg',
+  '/Heroes/opt/kids2.jpg',
+  '/Heroes/opt/kids4.jpg',
 ];
 // Indexes into HERO_IMAGES that picture each class format.
-const FORMAT_HERO_INDEXES = { Barre: [1, 2, 8], 'Strength Lab': [3, 4, 5, 6], powerCycle: [0, 7] };
+const FORMAT_HERO_INDEXES = { Barre: [1, 2, 8, 9, 10, 11], 'Strength Lab': [3, 4, 5, 6, 15, 16], powerCycle: [0, 7, 12, 13, 14] };
+// Juniors forms use the kids photography; adult forms without a chosen format use everything else.
+const KIDS_HERO_INDEXES = [17, 18, 19, 20];
 const CLASS_FORMATS = Object.keys(FORMAT_HERO_INDEXES);
 const BRAND_LOGO = 'https://images.fillout.com/orgid-66954/flowpublicid-uxjuax2dbd/widgetid-default/jART4M3Yb27Pc9DpgJCpz5/pasted-image-1782902048740-lg84b5zl.png';
 // New forms use the brand blue so the form matches the landing sections beneath it.
@@ -227,7 +242,9 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const description = details || `Join ${experienceName}${peopleCopy}${logistics ? ` ${logistics}` : ''} for a ${experienceKind} experience designed to move, challenge, and connect.`;
   // Link previews show the event's own details, not generic app copy.
   const metadataDescription = description;
-  const heroPool = classFormats.length ? classFormats.flatMap((format) => FORMAT_HERO_INDEXES[format]).map((index) => HERO_IMAGES[index]) : HERO_IMAGES;
+  const heroPool = signupType === 'kids' ? KIDS_HERO_INDEXES.map((index) => HERO_IMAGES[index])
+    : classFormats.length ? classFormats.flatMap((format) => FORMAT_HERO_INDEXES[format]).map((index) => HERO_IMAGES[index])
+    : HERO_IMAGES.filter((_, index) => !KIDS_HERO_INDEXES.includes(index));
   const formData = { fields: fieldsForSignupType(signupType, targetStudios, classFormats), signupType, targetStudio, targetStudios, sessionId, sessionStudio, classFormat, classFormats, submissionLimit, eventDate, eventTime, eventVenue, layout: 'stacked', heroImage: heroPool[(seed >>> 4) % heroPool.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: BRAND_ACCENT, formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: hostSlug || eventSlug || 'general', utmChannel: eventSlug || hostSlug || 'general', utmCampaign: eventSlug || hostSlug || 'general', hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
   const slug = await createUniqueSlug(eventName || influencerName || campaignName);
   const { data, error } = await supabase.from('forms').insert({ title, description, slug, form_data: formData, theme_color: 'midnight', status: 'Draft', creator_email: req.body.creatorEmail || '' }).select().single();

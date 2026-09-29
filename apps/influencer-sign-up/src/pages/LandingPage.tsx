@@ -24,13 +24,16 @@ const STUDIOS_BY_CITY: { city: string; studios: string[] }[] = [
 
 const ALL_STUDIOS = STUDIOS_BY_CITY.flatMap((group) => group.studios);
 
+// Juniors photography; adult hero pools exclude these.
+const KIDS_HERO_INDEXES = [17, 18, 19, 20];
+
 type ClassFormat = 'Barre' | 'Strength Lab' | 'powerCycle';
 
 // Indexes into HERO_IMAGES that picture each format; the server picks form heroes from the same sets.
 const CLASS_FORMATS: { value: ClassFormat; desc: string; images: number[] }[] = [
-  { value: 'Barre', desc: 'Signature interval overload', images: [1, 2, 8] },
-  { value: 'Strength Lab', desc: 'Targeted weight training', images: [3, 4, 5, 6] },
-  { value: 'powerCycle', desc: 'High-intensity rhythm ride', images: [0, 7] },
+  { value: 'Barre', desc: 'Signature interval overload', images: [1, 2, 8, 9, 10, 11] },
+  { value: 'Strength Lab', desc: 'Targeted weight training', images: [3, 4, 5, 6, 15, 16] },
+  { value: 'powerCycle', desc: 'High-intensity rhythm ride', images: [0, 7, 12, 13, 14] },
 ];
 const formatsForStudio = (studio: string): ClassFormat[] => (/bengaluru/i.test(studio) ? ['Barre'] : CLASS_FORMATS.map((f) => f.value));
 const toggle = <T,>(list: T[], value: T) => (list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
@@ -70,7 +73,9 @@ export default function LandingPage() {
   const availableFormats = useMemo(() => CLASS_FORMATS.map((f) => f.value).filter((format) => studios.some((studio) => formatsForStudio(studio).includes(format))), [studios]);
   const effectiveFormats = useMemo(() => (signupType === 'kids' ? [] : availableFormats.filter((format) => formats.includes(format))), [signupType, formats, availableFormats]);
   const formatKey = effectiveFormats.join(',');
-  const carouselImages = useMemo(() => effectiveFormats.length ? CLASS_FORMATS.filter((f) => effectiveFormats.includes(f.value)).flatMap((f) => f.images).map((index) => HERO_IMAGES[index]) : HERO_IMAGES, [formatKey]);
+  const carouselImages = useMemo(() => signupType === 'kids' ? KIDS_HERO_INDEXES.map((index) => HERO_IMAGES[index])
+    : effectiveFormats.length ? CLASS_FORMATS.filter((f) => effectiveFormats.includes(f.value)).flatMap((f) => f.images).map((index) => HERO_IMAGES[index])
+    : HERO_IMAGES.filter((_, index) => !KIDS_HERO_INDEXES.includes(index)), [formatKey, signupType]);
   const studioKey = studios.join('|');
 
   // Only the formats the form is built for, so the class list matches what guests can pick.

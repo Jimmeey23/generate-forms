@@ -15,6 +15,19 @@ export const HERO_IMAGES = [
   'https://images.fillout.com/orgid-66954/flowpublicid-uxjuax2dbd/widgetid-default/61eCRLbFKFPwoowdwvvaH2/pasted-image-1782902048789-09kcsqk1.jpg',
   'https://images.fillout.com/orgid-66954/flowpublicid-uxjuax2dbd/widgetid-default/n3WfwNPSpc7hXetukVhWZc/pasted-image-1782902048806-m84p5gkd.jpg',
   'https://images.fillout.com/orgid-66954/flowpublicid-uxjuax2dbd/widgetid-default/hE8EfAKjgiatvJCWPRN311/pasted-image-1782902134354-vxs5bt0r.jpg',
+  // Studio photography served from public/Heroes (optimised copies of the originals).
+  '/Heroes/opt/barre.jpg',
+  '/Heroes/opt/barre1.jpg',
+  '/Heroes/opt/barre3.jpg',
+  '/Heroes/opt/cycle.jpg',
+  '/Heroes/opt/cycle1.jpg',
+  '/Heroes/opt/cycle3.jpg',
+  '/Heroes/opt/strength.jpg',
+  '/Heroes/opt/strength9.jpg',
+  '/Heroes/opt/kids.jpg',
+  '/Heroes/opt/kids1.jpg',
+  '/Heroes/opt/kids2.jpg',
+  '/Heroes/opt/kids4.jpg',
 ];
 
 export const CENTERS = [
