@@ -83,12 +83,21 @@ async function loginToDashboard() {
   dashboardCookies = { value: [loginCookies, cookiePairs(mfa.headers)].filter(Boolean).join('; '), expiresAt: Date.now() + 20 * 60 * 60000 };
   return dashboardCookies.value;
 }
-async function dashboard(path, init = {}, retry = true) {
-  const cookies = await getDashboardCookies(!retry);
+async function dashboard(path, init = {}, retryAuth = true, transientRetries = 2) {
+  const cookies = await getDashboardCookies(!retryAuth);
   const csrf = cookies.split('; ').find((v) => v.startsWith('csrf_token='))?.slice(11);
   const response = await fetch(`${DASHBOARD_BASE}${path}`, { ...init, headers: { Accept: 'application/json', 'Content-Type': 'application/json', Cookie: cookies, Origin: 'https://momence.com', 'X-App': 'dashboard', ...(csrf ? { 'X-CSRF-Token': csrf } : {}), ...(init.headers || {}) } });
-  if (response.status === 401 && retry) return dashboard(path, init, false);
-  const text = await response.text(); if (!response.ok) throw new Error(`Momence dashboard request failed (${response.status}): ${text.slice(0, 300)}`);
+  if (response.status === 401 && retryAuth) return dashboard(path, init, false, transientRetries);
+  const text = await response.text();
+  if ([502, 503, 504].includes(response.status) && transientRetries > 0) {
+    console.warn(`Momence dashboard ${response.status} for ${init.method || 'GET'} ${path}; retrying.`);
+    await new Promise((resolve) => setTimeout(resolve, (3 - transientRetries) * 750));
+    return dashboard(path, init, retryAuth, transientRetries - 1);
+  }
+  if (!response.ok) {
+    const detail = response.headers.get('content-type')?.includes('application/json') ? text.slice(0, 300) : 'Momence returned an unavailable service page.';
+    throw new Error(`Momence dashboard request failed (${response.status}) for ${init.method || 'GET'} ${path}: ${detail}`);
+  }
   return text ? JSON.parse(text) : {};
 }
 async function readonly(path, retry = true) {
