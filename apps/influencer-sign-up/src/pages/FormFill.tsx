@@ -83,6 +83,12 @@ export default function FormFill() {
         navigate(`/classes/${result.signup.memberId}?${query}`);
         return;
       }
+      // Momence could not create the profile or booking: the lead is saved, but nothing is
+      // confirmed, so report it instead of showing a confirmation screen.
+      if (result.signupStatus === 'MOMENCE_FAILED') {
+        toast.error(result.signupError || 'We saved your details, but could not complete your booking. Our team will contact you shortly.');
+        return;
+      }
       navigate('/success');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to submit. Please try again.');
@@ -97,6 +103,18 @@ export default function FormFill() {
         <div className="w-full max-w-3xl px-4 space-y-4">
           <Skeleton className="h-80 rounded-2xl" />
           <Skeleton className="h-64 rounded-2xl" />
+        </div>
+      </div>
+    );
+  }
+
+  const limitReached = Boolean(form && form.submissionLimit > 0 && form.submissionCount >= form.submissionLimit);
+  if (form && form.status === 'Published' && limitReached) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background px-6">
+        <div className="max-w-md text-center">
+          <h2 className="text-2xl font-semibold mb-2 text-foreground" style={{ fontFamily: "'Playfair Display', serif" }}>Sign-ups are closed</h2>
+          <p className="text-muted-foreground">{form.title} has reached its limit of {form.submissionLimit} sign-ups. Follow @physique57india for the next one.</p>
         </div>
       </div>
     );

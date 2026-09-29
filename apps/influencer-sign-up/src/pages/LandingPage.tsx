@@ -35,7 +35,7 @@ const CLASS_FORMATS: { value: ClassFormat; desc: string; images: number[] }[] = 
 const formatsForStudio = (studio: string): ClassFormat[] => (/bengaluru/i.test(studio) ? ['Barre'] : CLASS_FORMATS.map((f) => f.value));
 const toggle = <T,>(list: T[], value: T) => (list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
 const IST = { timeZone: 'Asia/Kolkata' } as const;
-type StudioSession = MomenceSession & { studio: string };
+type StudioSession = MomenceSession & { studio: string; format: ClassFormat };
 const shortStudio = (studio: string) => studio.split(',')[0];
 const sessionKey = (session: StudioSession) => `${session.studio}|${session.id}`;
 const sessionDay = (session: StudioSession) => new Date(session.startsAt).toLocaleDateString('en-IN', { ...IST, weekday: 'short', day: 'numeric', month: 'short' });
@@ -60,6 +60,7 @@ export default function LandingPage() {
   // Selected class as `${studio}|${sessionId}`; Momence classes belong to one studio.
   const [selectedKey, setSelectedKey] = useState('');
   const [manualId, setManualId] = useState('');
+  const [submissionLimit, setSubmissionLimit] = useState('');
   const [manualStudio, setManualStudio] = useState('');
   const [sessions, setSessions] = useState<StudioSession[]>([]);
   const [sessionsState, setSessionsState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -72,13 +73,17 @@ export default function LandingPage() {
   const carouselImages = useMemo(() => effectiveFormats.length ? CLASS_FORMATS.filter((f) => effectiveFormats.includes(f.value)).flatMap((f) => f.images).map((index) => HERO_IMAGES[index]) : HERO_IMAGES, [formatKey]);
   const studioKey = studios.join('|');
 
-  // Every format at every selected studio, so organisers can pre-book any class on offer.
+  // Only the formats the form is built for, so the class list matches what guests can pick.
   useEffect(() => {
     let cancelled = false;
     setSessions([]);
     setSessionsState('loading');
-    const requests = studios.flatMap((studio) => formatsForStudio(studio).map((classType) =>
-      getMomenceSessions({ center: studio, classType }).then(({ sessions }) => sessions.map((session) => ({ ...session, studio })))));
+    const requests = studios.flatMap((studio) => {
+      const studioFormats = formatsForStudio(studio);
+      const wanted = effectiveFormats.length ? studioFormats.filter((format) => effectiveFormats.includes(format)) : studioFormats;
+      return wanted.map((classType) => getMomenceSessions({ center: studio, classType })
+        .then(({ sessions }) => sessions.map((session) => ({ ...session, studio, format: classType }))));
+    });
     Promise.all(requests)
       .then((results) => {
         if (cancelled) return;
@@ -90,7 +95,7 @@ export default function LandingPage() {
       })
       .catch(() => { if (!cancelled) setSessionsState('error'); });
     return () => { cancelled = true; };
-  }, [studioKey]);
+  }, [studioKey, formatKey]);
 
   const sessionsByDay = useMemo(() => sessions.reduce<Record<string, StudioSession[]>>((days, session) => { (days[sessionDay(session)] ||= []).push(session); return days; }, {}), [sessions]);
   const selectedSession = sessions.find((session) => sessionKey(session) === selectedKey);
@@ -98,7 +103,14 @@ export default function LandingPage() {
   const sessionId = manualBooking ? manualId : selectedSession ? String(selectedSession.id) : '';
   const sessionStudio = manualBooking ? (studios.includes(manualStudio) ? manualStudio : studios[0]) : selectedSession?.studio || '';
   // The class never fills the event date/time; the hero shows only what the organiser types.
-  const chooseSession = (key: string) => setSelectedKey(key);
+  // Picking a class pins the form to that class's studio and format, so guests land pre-selected.
+  const chooseSession = (key: string) => {
+    setSelectedKey(key);
+    const session = sessions.find((item) => sessionKey(item) === key);
+    if (!session) return;
+    setStudios([session.studio]);
+    if (signupType !== 'kids') setFormats([session.format]);
+  };
 
   const cities = STUDIOS_BY_CITY.filter((group) => group.studios.some((studio) => studios.includes(studio))).map((group) => group.city);
   const studioSummary = studios.length === ALL_STUDIOS.length ? 'All studios' : studios.length === 1 ? studios[0] : `${studios.length} studios`;
@@ -118,7 +130,7 @@ export default function LandingPage() {
         toast.error('Paid signups need a Momence class');
         return;
       }
-      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId, sessionStudio: sessionId ? sessionStudio : '', classFormats: effectiveFormats, eventDate, eventTime, eventVenue: eventVenue.trim() });
+      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId, sessionStudio: sessionId ? sessionStudio : '', classFormats: effectiveFormats, submissionLimit: Number(submissionLimit) || 0, eventDate, eventTime, eventVenue: eventVenue.trim() });
       toast.success('Form created!', form.sheetUrl
         ? { description: 'Submissions will be saved to a public Google Sheet.', action: { label: 'Open Sheet', onClick: () => window.open(form.sheetUrl, '_blank') }, duration: 10000 }
         : undefined);
@@ -236,6 +248,17 @@ export default function LandingPage() {
                       </OptionTile>
                     ))}
                   </div>
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                    <div>
+                      <Label htmlFor="submission-limit" className={labelClass}>Sign-up limit (optional)</Label>
+                      <Input id="submission-limit" inputMode="numeric" value={submissionLimit}
+                        onChange={(e) => setSubmissionLimit(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                        placeholder="e.g. 25 · leave blank for unlimited" className={fieldClass} />
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed md:pt-7">
+                      {submissionLimit ? `The form stops accepting responses after ${submissionLimit} sign-ups.` : 'The form accepts responses until you unpublish it.'}
+                    </p>
+                  </div>
                 </FormSection>
 
                 <FormSection step="03" title="Studios" hint="Select one or more · guests choose between them"
@@ -324,11 +347,11 @@ export default function LandingPage() {
                     <p className="text-xs text-muted-foreground leading-relaxed md:pt-7">
                       {manualBooking
                         ? 'Momence classes could not be loaded right now. You can still paste a session ID.'
-                        : `Next 30 days of every class format at ${studios.length > 1 ? `all ${studios.length} selected studios` : studios[0]}.`}
+                        : `Next 30 days of ${effectiveFormats.length ? effectiveFormats.join(' & ') : 'every'} classes at ${studios.length > 1 ? `all ${studios.length} selected studios` : shortStudio(studios[0])}.`}
                       {' '}
                       {studios.length > 1
                         ? 'Guests who choose this class’s studio are auto-booked into it; guests at the other studios pick a class after signing up.'
-                        : 'Guests are auto-booked into the chosen class after signup.'}
+                        : 'Guests are auto-booked into the chosen class after signup. Selecting a class pins the form to its studio and format.'}
                     </p>
                   </div>
                 </FormSection>
@@ -351,6 +374,7 @@ export default function LandingPage() {
                   <SummaryItem label="Studios" value={studioSummary} span />
                   <SummaryItem label="Formats" value={effectiveFormats.join(', ') || 'Any'} span />
                   <SummaryItem label="When" value={eventDate ? new Date(`${eventDate}T${eventTime || '00:00'}`).toLocaleString('en-IN', { day: 'numeric', month: 'short', ...(eventTime ? { hour: 'numeric', minute: '2-digit' } : {}) }) : '—'} />
+                  <SummaryItem label="Limit" value={submissionLimit ? `${submissionLimit} sign-ups` : 'Unlimited'} />
                   <SummaryItem label="Class" value={selectedSession ? `${sessionDay(selectedSession)} ${sessionTime(selectedSession)}` : sessionId || (signupType === 'paid' ? 'Required' : 'None')} />
                 </dl>
                 <motion.div whileHover={canGenerate ? { scale: 1.02 } : undefined} whileTap={canGenerate ? { scale: 0.98 } : undefined}>

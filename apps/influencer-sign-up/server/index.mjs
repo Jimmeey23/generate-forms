@@ -155,6 +155,7 @@ function publicForm(record, req) {
     signupType: data.signupType || 'free', targetStudio: data.targetStudio || '', sessionId: data.sessionId || '', classFormat: data.classFormat || '',
     targetStudios: data.targetStudios || (data.targetStudio ? [data.targetStudio] : []), sessionStudio: data.sessionStudio || data.targetStudio || '', classFormats: data.classFormats || (data.classFormat ? [data.classFormat] : []),
     eventDate: data.eventDate || '', eventTime: data.eventTime || '', eventVenue: data.eventVenue || '',
+    submissionLimit: Number(data.submissionLimit) || 0,
     sheetUrl: data.sheetUrl || '',
   };
 }
@@ -205,6 +206,7 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   if (unavailable) return res.status(400).json({ error: `${unavailable} is not offered at the selected studios.` });
   const classFormats = signupType === 'kids' ? [] : CLASS_FORMATS.filter((format) => requestedFormats.includes(format));
   const classFormat = classFormats.length === 1 ? classFormats[0] : '';
+  const submissionLimit = Math.max(0, Math.min(100000, Math.floor(Number(req.body.submissionLimit) || 0)));
   const eventDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.eventDate || '')) ? req.body.eventDate : '';
   const eventTime = /^\d{2}:\d{2}$/.test(String(req.body.eventTime || '')) ? req.body.eventTime : '';
   const eventVenue = String(req.body.eventVenue || '').trim().slice(0, 300);
@@ -226,7 +228,7 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   // Link previews show the event's own details, not generic app copy.
   const metadataDescription = description;
   const heroPool = classFormats.length ? classFormats.flatMap((format) => FORMAT_HERO_INDEXES[format]).map((index) => HERO_IMAGES[index]) : HERO_IMAGES;
-  const formData = { fields: fieldsForSignupType(signupType, targetStudios, classFormats), signupType, targetStudio, targetStudios, sessionId, sessionStudio, classFormat, classFormats, eventDate, eventTime, eventVenue, layout: 'stacked', heroImage: heroPool[(seed >>> 4) % heroPool.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: BRAND_ACCENT, formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: hostSlug || eventSlug || 'general', utmChannel: eventSlug || hostSlug || 'general', utmCampaign: eventSlug || hostSlug || 'general', hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
+  const formData = { fields: fieldsForSignupType(signupType, targetStudios, classFormats), signupType, targetStudio, targetStudios, sessionId, sessionStudio, classFormat, classFormats, submissionLimit, eventDate, eventTime, eventVenue, layout: 'stacked', heroImage: heroPool[(seed >>> 4) % heroPool.length], heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: BRAND_ACCENT, formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: hostSlug || eventSlug || 'general', utmChannel: eventSlug || hostSlug || 'general', utmCampaign: eventSlug || hostSlug || 'general', hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
   const slug = await createUniqueSlug(eventName || influencerName || campaignName);
   const { data, error } = await supabase.from('forms').insert({ title, description, slug, form_data: formData, theme_color: 'midnight', status: 'Draft', creator_email: req.body.creatorEmail || '' }).select().single();
   if (error) throw error;
@@ -258,6 +260,7 @@ app.patch('/api/forms/:id', asyncRoute(async (req, res) => {
   const dataKeys = ['fields', 'heroImage', 'heroPositionX', 'heroPositionY', 'heroHeight', 'heroWidth', 'layout', 'formWidth', 'formMinHeight', 'formBorderRadius', 'formPadding', 'boldLabels', 'utmSource', 'utmChannel', 'utmCampaign', 'hashtagSize', 'hashtagStyle', 'hashtagPosition', 'logoPosition', 'logoSize', 'logoInvert'];
   let changed = false;
   for (const key of dataKeys) if (req.body[key] !== undefined) { formData[key] = req.body[key]; changed = true; }
+  if (req.body.submissionLimit !== undefined) { formData.submissionLimit = Math.max(0, Math.min(100000, Math.floor(Number(req.body.submissionLimit) || 0))); changed = true; }
   if (changed) update.form_data = formData;
   const { error } = await supabase.from('forms').update(update).eq('id', req.params.id);
   if (error) throw error;
@@ -344,6 +347,12 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   const phone = formatPhone(responses.phone);
   const allowedStudios = Array.isArray(formData.targetStudios) ? formData.targetStudios : [];
   if (allowedStudios.length && !allowedStudios.includes(rawCenter)) return res.status(400).json({ error: 'Please choose one of the studios offered on this form.' });
+  const submissionLimit = Number(formData.submissionLimit) || 0;
+  if (submissionLimit > 0) {
+    const { count, error: countCheckError } = await supabase.from('form_submissions').select('id', { count: 'exact', head: true }).eq('form_id', req.params.id);
+    if (countCheckError) throw countCheckError;
+    if ((count || 0) >= submissionLimit) return res.status(409).json({ error: 'This form has reached its sign-up limit and is no longer accepting responses.', limitReached: true });
+  }
   if (await isDuplicateSubmission(req.params.id, email, phone)) return res.status(409).json({ error: 'You have already signed up for this form with this email or phone number.', duplicate: true });
   const { data: submission, error } = await supabase.from('form_submissions').insert({ form_id: req.params.id, response_data: responses, submitter_email: email, first_name: responses.firstName || '', last_name: responses.lastName || '', phone, center: rawCenter, class_type: responses.classType || '', utm_source: utmSource, utm_campaign: utmCampaign, utm_channel: utmChannel, utm_medium: attribution.utmMedium, utm_term: attribution.utmTerm, utm_content: attribution.utmContent, gclid: attribution.gclid, fbclid: attribution.fbclid, referrer: attribution.referrer, landing_page: attribution.landingPage, ab_variant: attribution.abVariant }).select('id').single();
   if (error) throw error;
@@ -390,7 +399,7 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   } catch (sheetError) { console.error(`Submission ${submission.id} saved, but Google Sheet append failed:`, sheetError?.message || sheetError); }
   // Paid signups cannot continue to checkout without a Momence member; free and kids signups go through regardless.
   if (signupError && operationalForm.signupType === 'paid') throw signupError;
-  res.status(201).json({ success: true, submissionId: submission.id, webhookStatus, signup, checkoutUrl, signupStatus: signupError ? 'MOMENCE_FAILED' : 'OK' });
+  res.status(201).json({ success: true, submissionId: submission.id, webhookStatus, signup, checkoutUrl, signupStatus: signupError ? 'MOMENCE_FAILED' : 'OK', signupError: signupError ? String(signupError?.message || signupError).slice(0, 300) : '' });
 }));
 
 app.get('/api/payments/confirm', asyncRoute(async (req, res) => {

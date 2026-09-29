@@ -89,6 +89,7 @@ export default function FormPreview() {
   const [editFormMinHeight, setEditFormMinHeight] = useState(0);
   const [editFormBorderRadius, setEditFormBorderRadius] = useState(16);
   const [editFormPadding, setEditFormPadding] = useState(40);
+  const [editSubmissionLimit, setEditSubmissionLimit] = useState('');
   const [editBoldLabels, setEditBoldLabels] = useState(false);
 
   // UTM
@@ -125,9 +126,12 @@ export default function FormPreview() {
       setEditUtmChannel(f.utmChannel);
       setEditUtmCampaign(f.utmCampaign);
       setEditFields(f.fields as Field[]);
+      setEditSubmissionLimit(f.submissionLimit ? String(f.submissionLimit) : '');
       setLoading(false);
     });
   }, [id]);
+
+  const limitReached = form ? form.submissionLimit > 0 && form.submissionCount >= form.submissionLimit : false;
 
   const handlePublish = async () => {
     if (!form) return;
@@ -149,10 +153,10 @@ export default function FormPreview() {
       logoPosition: editLogoPosition, logoSize: editLogoSize, logoInvert: editLogoInvert,
       formWidth: editFormWidth, formMinHeight: editFormMinHeight,
       formBorderRadius: editFormBorderRadius, formPadding: editFormPadding,
-      boldLabels: editBoldLabels,
+      boldLabels: editBoldLabels, submissionLimit: Number(editSubmissionLimit) || 0,
     });
     setForm({
-      ...form, title: editTitle, description: editDesc, themeColor: editTheme,
+      ...form, submissionLimit: Number(editSubmissionLimit) || 0, title: editTitle, description: editDesc, themeColor: editTheme,
       heroImage: editHero, layout: editLayout, fields: editFields,
       utmSource: editUtmSource, utmChannel: editUtmChannel, utmCampaign: editUtmCampaign,
     });
@@ -411,6 +415,17 @@ export default function FormPreview() {
                 <Label className="text-xs text-muted-foreground">Bold Labels</Label>
                 <Switch checked={editBoldLabels} onCheckedChange={setEditBoldLabels} />
               </div>
+            </SidebarCard>
+
+            {/* Responses */}
+            <SidebarCard title="Responses" icon={<Settings2 className="w-4 h-4" />}>
+              <div>
+                <Label className="text-xs text-muted-foreground">Sign-up limit (0 = unlimited)</Label>
+                <Input inputMode="numeric" value={editSubmissionLimit} onChange={(e) => setEditSubmissionLimit(e.target.value.replace(/\D/g, '').slice(0, 5))} placeholder="Unlimited" className="h-8 text-sm" />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {form.submissionCount} received{form.submissionLimit > 0 ? ` of ${form.submissionLimit}` : ''}{limitReached ? ' · closed to new sign-ups' : ''}
+              </p>
             </SidebarCard>
 
             {/* UTM */}

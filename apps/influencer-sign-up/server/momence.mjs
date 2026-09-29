@@ -20,7 +20,8 @@ const MEMBERSHIPS = {
 };
 const PLASH_SCHEDULE_LOCATION_IDS = [287883, 36372];
 const PAYMENT_METHODS = { mumbai: 4578, bengaluru: 5801 };
-const FREE_PAID_FORMAT_BOOKING_MEMBERSHIP_ID = 75676122;
+// Granted at zero price so free sign-ups can be booked into a paid class format (Strength Lab, powerCycle).
+const FREE_PAID_FORMAT_MEMBERSHIP_ID = 97981;
 const tokenCache = new Map();
 let dashboardCookies = null;
 let stripeClient = null;
@@ -131,6 +132,27 @@ async function bookWithMembership(memberId, sessionId, config, membershipId) {
   if (!boughtId) throw new Error('No compatible active membership was found for this class.');
   await dashboard(`/host/${config.hostId}/auto-book/member/${memberId}/session/${sessionId}`, { method: 'POST', headers: { Referer: `https://momence.com/dashboard/${config.hostId}/sessions/${sessionId}`, 'X-Origin': `https://momence.com/dashboard/${config.hostId}/sessions/${sessionId}`, 'X-Idempotence-Key': randomUUID() }, body: JSON.stringify({ autoCheckin: false, membershipIds: [boughtId], addToWaitlist: false, isCapacityOverriden: false, isAgeRestrictionOverridden: false }) });
 }
+// Free sign-ups on a paid class format are comped with the zero-price complimentary membership,
+// then booked with it. An already-granted one is reused; a free booking is the last resort.
+async function grantComplimentaryMembership(memberId, config) {
+  const body = { memberId, homeLocationId: config.homeLocationId, items: [{ id: '1', type: 'membership', membershipId: FREE_PAID_FORMAT_MEMBERSHIP_ID, priceInCurrency: 0, quantity: 1, isPaymentPlanUsed: false }], paymentMethods: [{ id: '1', type: 'free' }] };
+  return momence('/host/checkout', { method: 'POST', body: JSON.stringify(body) }, config.account);
+}
+async function compatibleBoughtMembershipId(memberId, sessionId, config, membershipId) {
+  const compatible = await momence('/host/checkout/compatible-memberships', { method: 'POST', body: JSON.stringify({ memberId, homeLocationId: config.homeLocationId, items: [{ id: '1', type: 'session', sessionId }] }) }, config.account);
+  return (compatible.items || []).find((item) => !item.incompatibility && item.boughtMembership?.membership?.id === membershipId)?.boughtMembership?.id || null;
+}
+async function bookComplimentary(memberId, sessionId, config) {
+  let boughtId = await compatibleBoughtMembershipId(memberId, sessionId, config, FREE_PAID_FORMAT_MEMBERSHIP_ID);
+  if (!boughtId) {
+    try { await grantComplimentaryMembership(memberId, config); }
+    catch (error) { if (!/already/i.test(String(error?.message || error))) throw error; }
+    boughtId = await compatibleBoughtMembershipId(memberId, sessionId, config, FREE_PAID_FORMAT_MEMBERSHIP_ID);
+  }
+  if (boughtId) return bookWithBoughtMembership(memberId, sessionId, config, boughtId);
+  console.warn(`Complimentary membership ${FREE_PAID_FORMAT_MEMBERSHIP_ID} is not usable for session ${sessionId}; booking free instead.`);
+  await momence(`/host/sessions/${sessionId}/bookings/free`, { method: 'POST', body: JSON.stringify({ memberId }) }, config.account);
+}
 async function bookWithBoughtMembership(memberId, sessionId, config, boughtMembershipId) {
   await dashboard(`/host/${config.hostId}/auto-book/member/${memberId}/session/${sessionId}`, { method: 'POST', headers: { Referer: `https://momence.com/dashboard/${config.hostId}/sessions/${sessionId}`, 'X-Origin': `https://momence.com/dashboard/${config.hostId}/sessions/${sessionId}`, 'X-Idempotence-Key': randomUUID() }, body: JSON.stringify({ autoCheckin: false, membershipIds: [boughtMembershipId], addToWaitlist: false, isCapacityOverriden: false, isAgeRestrictionOverridden: false }) });
 }
@@ -181,7 +203,7 @@ export async function signupAdult(input, form) {
   const paidClassFormat = /strength|cycle/i.test(input.classType || '');
   const freePaidFormat = form.signupType === 'free' && config.account === 'mumbai' && paidClassFormat;
   const paidOffer = !freePaidFormat && (form.signupType === 'paid' || config.account === 'bengaluru' || paidClassFormat);
-  if (freePaidFormat && form.sessionId) await bookWithBoughtMembership(created.memberId, Number(form.sessionId), config, FREE_PAID_FORMAT_BOOKING_MEMBERSHIP_ID);
+  if (freePaidFormat && form.sessionId) await bookComplimentary(created.memberId, Number(form.sessionId), config);
   else if (!paidOffer && !freePaidFormat) { await grantMembership(created.memberId, config, plan.free, false); if (form.sessionId) await bookWithMembership(created.memberId, Number(form.sessionId), config, plan.free); }
   return { memberId: created.memberId, config, plan, paymentRequired: paidOffer && Boolean(form.sessionId), scheduleRequiresPayment: paidOffer && !form.sessionId, booked: !paidOffer && Boolean(form.sessionId) };
 }
@@ -211,7 +233,7 @@ export async function selectClassAndContinue({ memberId, sessionId, center, clas
   validateCustomerFields(customerFields || {}, requiresShoeSize); await saveCustomerFields(Number(memberId), customerFields || {});
   const freePaidFormat = signupType === 'free' && config.account === 'mumbai' && /strength|cycle/i.test(classType || '');
   if (freePaidFormat) {
-    await bookWithBoughtMembership(Number(memberId), Number(sessionId), config, FREE_PAID_FORMAT_BOOKING_MEMBERSHIP_ID);
+    await bookComplimentary(Number(memberId), Number(sessionId), config);
     return { booked: true, checkoutUrl: null, memberId: Number(memberId), sessionId: Number(sessionId) };
   }
   const requiresPayment = config.account === 'bengaluru' || /strength|cycle/i.test(classType || '');

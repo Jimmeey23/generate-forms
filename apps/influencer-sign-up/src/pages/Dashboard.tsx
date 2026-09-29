@@ -139,7 +139,7 @@ function FormCard({
           </Badge>
         </div>
         <div className="flex items-center gap-4 text-xs text-muted-foreground mb-4">
-          <span className="flex items-center gap-1"><BarChart3 className="w-3.5 h-3.5" />{form.submissionCount} responses</span>
+          <span className={`flex items-center gap-1${form.submissionLimit > 0 && form.submissionCount >= form.submissionLimit ? ' text-amber-400' : ''}`}><BarChart3 className="w-3.5 h-3.5" />{form.submissionCount}{form.submissionLimit > 0 ? `/${form.submissionLimit}` : ''} responses</span>
           {form.createdAt && <span>{format(new Date(form.createdAt), 'MMM d, yyyy')}</span>}
           {form.sheetUrl && <a href={form.sheetUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:text-foreground"><Sheet className="w-3.5 h-3.5" />Sheet</a>}
         </div>
