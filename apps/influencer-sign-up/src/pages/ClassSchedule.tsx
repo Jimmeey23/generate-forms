@@ -13,6 +13,7 @@ const EMPTY_FIELDS = { fitnessGoal: '', emergencyContactInfo: '', pregnancyStatu
 export default function ClassSchedule() {
   const { memberId = '' } = useParams(); const [search] = useSearchParams(); const navigate = useNavigate();
   const center = search.get('center') || ''; const initialClassType = search.get('classType') || 'Barre';
+  const signupType = search.get('signupType') === 'free' ? 'free' : 'paid';
   // Forms built for one class format only offer that format's classes.
   const studioOptions = /kenkere|copper|plash|bengaluru/i.test(center) ? ['Barre'] : ['Barre', 'Strength Lab', 'powerCycle'];
   const lockedFormats = (search.get('format') || '').split(',').filter((format) => studioOptions.includes(format));
@@ -26,7 +27,7 @@ export default function ClassSchedule() {
   const submit = async () => {
     if (!selected) return; setBooking(true); setFieldError('');
     try {
-      const result = await selectMomenceClass({ memberId: Number(memberId), sessionId: selected.id, center, classType, customerFields: fields });
+      const result = await selectMomenceClass({ memberId: Number(memberId), sessionId: selected.id, center, classType, signupType, customerFields: fields });
       updateSignupDetails({ classType, session: { name: selected.name, startsAt: selected.startsAt, teacherName: selected.teacherName } });
       if (result.checkoutUrl) { window.location.assign(result.checkoutUrl); return; }
       updateSignupDetails({ booked: true });

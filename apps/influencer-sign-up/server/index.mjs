@@ -406,10 +406,10 @@ app.get('/api/momence/sessions', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/momence/select-class', asyncRoute(async (req, res) => {
-  const { memberId, sessionId, center, classType, customerFields } = req.body || {};
+  const { memberId, sessionId, center, classType, signupType, customerFields } = req.body || {};
   if (!Number(memberId) || !Number(sessionId)) return res.status(400).json({ error: 'memberId and sessionId are required' });
   const origin = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-  res.json(await selectClassAndContinue({ memberId, sessionId, center, classType, customerFields, origin }));
+  res.json(await selectClassAndContinue({ memberId, sessionId, center, classType, signupType, customerFields, origin }));
 }));
 
 const distPath = path.resolve(__dirname, '../dist');

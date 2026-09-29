@@ -20,6 +20,7 @@ const MEMBERSHIPS = {
 };
 const PLASH_SCHEDULE_LOCATION_IDS = [287883, 36372];
 const PAYMENT_METHODS = { mumbai: 4578, bengaluru: 5801 };
+const FREE_PAID_FORMAT_BOOKING_MEMBERSHIP_ID = 75676122;
 const tokenCache = new Map();
 let dashboardCookies = null;
 let stripeClient = null;
@@ -121,6 +122,9 @@ async function bookWithMembership(memberId, sessionId, config, membershipId) {
   if (!boughtId) throw new Error('No compatible active membership was found for this class.');
   await dashboard(`/host/${config.hostId}/auto-book/member/${memberId}/session/${sessionId}`, { method: 'POST', headers: { Referer: `https://momence.com/dashboard/${config.hostId}/sessions/${sessionId}`, 'X-Origin': `https://momence.com/dashboard/${config.hostId}/sessions/${sessionId}`, 'X-Idempotence-Key': randomUUID() }, body: JSON.stringify({ autoCheckin: false, membershipIds: [boughtId], addToWaitlist: false, isCapacityOverriden: false, isAgeRestrictionOverridden: false }) });
 }
+async function bookWithBoughtMembership(memberId, sessionId, config, boughtMembershipId) {
+  await dashboard(`/host/${config.hostId}/auto-book/member/${memberId}/session/${sessionId}`, { method: 'POST', headers: { Referer: `https://momence.com/dashboard/${config.hostId}/sessions/${sessionId}`, 'X-Origin': `https://momence.com/dashboard/${config.hostId}/sessions/${sessionId}`, 'X-Idempotence-Key': randomUUID() }, body: JSON.stringify({ autoCheckin: false, membershipIds: [boughtMembershipId], addToWaitlist: false, isCapacityOverriden: false, isAgeRestrictionOverridden: false }) });
+}
 function matchesClassFormat(name, classType) {
   const value = String(name || '').toLowerCase();
   if (classType === 'powerCycle') return value.includes('cycle') || value.includes('spin');
@@ -165,8 +169,11 @@ async function saveCustomerFields(memberId, values) {
 export async function signupAdult(input, form) {
   const config = locationConfig(form.targetStudio || input.center); const created = await createMember(input, config); await signWaivers(created.memberId, input.signatureRealSignature, config);
   const plan = config.account === 'mumbai' ? MEMBERSHIPS.mumbai : MEMBERSHIPS[config.id];
-  const paidOffer = form.signupType === 'paid' || config.account === 'bengaluru' || /strength|cycle/i.test(input.classType || '');
-  if (!paidOffer) { await grantMembership(created.memberId, config, plan.free, false); if (form.sessionId) await bookWithMembership(created.memberId, Number(form.sessionId), config, plan.free); }
+  const paidClassFormat = /strength|cycle/i.test(input.classType || '');
+  const freePaidFormat = form.signupType === 'free' && config.account === 'mumbai' && paidClassFormat;
+  const paidOffer = !freePaidFormat && (form.signupType === 'paid' || config.account === 'bengaluru' || paidClassFormat);
+  if (freePaidFormat && form.sessionId) await bookWithBoughtMembership(created.memberId, Number(form.sessionId), config, FREE_PAID_FORMAT_BOOKING_MEMBERSHIP_ID);
+  else if (!paidOffer && !freePaidFormat) { await grantMembership(created.memberId, config, plan.free, false); if (form.sessionId) await bookWithMembership(created.memberId, Number(form.sessionId), config, plan.free); }
   return { memberId: created.memberId, config, plan, paymentRequired: paidOffer && Boolean(form.sessionId), scheduleRequiresPayment: paidOffer && !form.sessionId, booked: !paidOffer && Boolean(form.sessionId) };
 }
 function splitChild(name, parentLastName) { const parts = cleanName(name).split(' ').filter(Boolean); return { firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || cleanName(parentLastName) }; }
@@ -190,9 +197,14 @@ export async function createPaidCheckout({ memberId, form, origin }) {
   const checkout = await stripe().checkout.sessions.create({ mode: 'payment', client_reference_id: `${memberId}:${sessionId}`, success_url: `${origin}/payment-confirmation?checkout_session_id={CHECKOUT_SESSION_ID}`, cancel_url: form.cancelUrl || `${origin}/f/${form.slug}?payment=cancelled`, metadata, payment_intent_data: { metadata }, line_items: [line] });
   return checkout.url;
 }
-export async function selectClassAndContinue({ memberId, sessionId, center, classType, customerFields, origin }) {
+export async function selectClassAndContinue({ memberId, sessionId, center, classType, signupType, customerFields, origin }) {
   const config = locationConfig(center); const requiresShoeSize = /cycle|spin/i.test(classType || '');
   validateCustomerFields(customerFields || {}, requiresShoeSize); await saveCustomerFields(Number(memberId), customerFields || {});
+  const freePaidFormat = signupType === 'free' && config.account === 'mumbai' && /strength|cycle/i.test(classType || '');
+  if (freePaidFormat) {
+    await bookWithBoughtMembership(Number(memberId), Number(sessionId), config, FREE_PAID_FORMAT_BOOKING_MEMBERSHIP_ID);
+    return { booked: true, checkoutUrl: null, memberId: Number(memberId), sessionId: Number(sessionId) };
+  }
   const requiresPayment = config.account === 'bengaluru' || /strength|cycle/i.test(classType || '');
   if (requiresPayment) {
     const query = new URLSearchParams({ center, classType }).toString();

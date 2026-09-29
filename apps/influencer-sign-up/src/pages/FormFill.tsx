@@ -78,7 +78,7 @@ export default function FormFill() {
       }
       // Guests not auto-booked (no class, or the class is at another studio) choose one now.
       if (form.signupType !== 'kids' && !booked && result.signup?.memberId) {
-        const query = new URLSearchParams({ center, classType: classType || 'Barre' });
+        const query = new URLSearchParams({ center, classType: classType || 'Barre', signupType: form.signupType });
         if (form.classFormats?.length) query.set('format', form.classFormats.join(','));
         navigate(`/classes/${result.signup.memberId}?${query}`);
         return;
