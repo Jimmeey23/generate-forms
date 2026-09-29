@@ -135,7 +135,9 @@ async function bookWithMembership(memberId, sessionId, config, membershipId) {
 // Free sign-ups on a paid class format are comped with the zero-price complimentary membership,
 // then booked with it. An already-granted one is reused; a free booking is the last resort.
 async function grantComplimentaryMembership(memberId, config) {
-  const body = { memberId, homeLocationId: config.homeLocationId, items: [{ id: '1', type: 'membership', membershipId: FREE_PAID_FORMAT_MEMBERSHIP_ID, priceInCurrency: 0, quantity: 1, isPaymentPlanUsed: false }], paymentMethods: [{ id: '1', type: 'free' }] };
+  // The public API only accepts `subscription` or `session` items; a membership is granted as a
+  // zero-price subscription item, not the dashboard's `membership` shape.
+  const body = { memberId, homeLocationId: config.homeLocationId, items: [{ id: '1', type: 'subscription', membershipId: FREE_PAID_FORMAT_MEMBERSHIP_ID, quantity: 1, attemptedPriceInCurrency: '0' }], paymentMethods: [{ id: '1', type: 'free' }] };
   return momence('/host/checkout', { method: 'POST', body: JSON.stringify(body) }, config.account);
 }
 async function compatibleBoughtMembershipId(memberId, sessionId, config, membershipId) {
