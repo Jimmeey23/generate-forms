@@ -114,7 +114,7 @@ export default function LandingPage() {
     const session = sessions.find((item) => sessionKey(item) === key);
     if (!session) return;
     setStudios([session.studio]);
-    if (signupType !== 'kids') setFormats([session.format]);
+    if (signupType !== 'kids' && !session.hosted) setFormats([session.format]);
   };
 
   const cities = STUDIOS_BY_CITY.filter((group) => group.studios.some((studio) => studios.includes(studio))).map((group) => group.city);
@@ -337,7 +337,7 @@ export default function LandingPage() {
                               <optgroup key={day} label={day}>
                                 {items.map((session) => (
                                   <option key={sessionKey(session)} value={sessionKey(session)} disabled={session.spotsLeft === 0}>
-                                    {sessionTime(session)} · {session.name}{studios.length > 1 ? ` · ${shortStudio(session.studio)}` : ''}{session.teacherName ? ` · ${session.teacherName}` : ''}{session.spotsLeft != null ? ` · ${session.spotsLeft === 0 ? 'Full' : `${session.spotsLeft} left`}` : ''}
+                                    {session.hosted ? '★ Hosted · ' : ''}{sessionTime(session)} · {session.name}{studios.length > 1 ? ` · ${shortStudio(session.studio)}` : ''}{session.teacherName ? ` · ${session.teacherName}` : ''}{session.spotsLeft != null ? ` · ${session.spotsLeft === 0 ? 'Full' : `${session.spotsLeft} left`}` : ''}
                                   </option>
                                 ))}
                               </optgroup>

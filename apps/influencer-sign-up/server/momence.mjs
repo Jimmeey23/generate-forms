@@ -164,27 +164,73 @@ function matchesClassFormat(name, classType) {
   if (classType === 'Strength Lab') return value.includes('strength') || value.includes('lab');
   return value.includes('barre') && !value.includes('cardio');
 }
-export async function listSessions(center, classType, daysAhead = 30) {
-  const config = locationConfig(center); const now = new Date(); const end = new Date(Date.now() + Math.min(60, Math.max(1, daysAhead)) * 86400000);
-  let payload = [];
+function normalizeSession(session, center, hosted) {
+  return { id: session.id, name: session.name, startsAt: session.startsAt, endsAt: session.endsAt, durationInMinutes: session.durationInMinutes, capacity: session.capacity ?? null, bookingCount: session.bookingCount || 0, spotsLeft: session.capacity == null ? null : Math.max(0, session.capacity - (session.bookingCount || 0)), teacherName: session.teacher ? `${session.teacher.firstName || ''} ${session.teacher.lastName || ''}`.trim() : '', locationName: session.inPersonLocation?.name || center, hosted: Boolean(hosted) };
+}
+// Hosted (private) sessions are listed under their own session type and are not part of the public
+// schedule, so they are fetched separately and shown whatever class format the form is built for.
+async function fetchSessions(config, center, end, hosted) {
+  const now = new Date();
   if (config.id === 383332) {
     // Plash classes are scheduled under the Bengaluru partner locations and identified by name, as in the Momence dashboard.
     const pageSize = 100;
+    const rowsFound = [];
     for (let page = 0; page < 10; page += 1) {
       const params = new URLSearchParams({ sortBy: 'startsAt', sortOrder: 'ASC', dateFrom: now.toISOString(), page: String(page), pageSize: String(pageSize), query: 'plash', timeZone: 'Asia/Kolkata', grouped: 'false' });
       for (const id of PLASH_SCHEDULE_LOCATION_IDS) params.append('locationIds[]', String(id));
       params.append('status[]', 'published'); params.append('status[]', 'unpublished');
+      if (hosted) params.append('types[]', 'private');
       const result = await readonly(`/host/33905/sessions?${params}`);
       const rows = Array.isArray(result) ? result : Array.isArray(result.payload) ? result.payload : (result.payload?.sessions || result.sessions || []);
-      payload.push(...rows.filter((session) => new Date(session.startsAt) < end));
+      rowsFound.push(...rows.filter((session) => new Date(session.startsAt) < end));
       if (rows.length < pageSize || rows.some((session) => new Date(session.startsAt) >= end)) break;
     }
-  } else {
-    const params = new URLSearchParams({ page: '0', pageSize: '200', sortBy: 'startsAt', sortOrder: 'ASC', locationId: String(config.id), startAfter: now.toISOString(), startBefore: end.toISOString(), includeCancelled: 'false', includeChildLocations: 'true' });
-    const result = await momence(`/host/sessions?${params}`, {}, config.account); payload = result.payload || [];
+    return rowsFound;
   }
-  const excluded = ['hosted', 'physique 57', 'p57', 'studio juniors'];
-  return payload.filter((session) => !session.isCancelled && !excluded.some((term) => String(session.name || '').toLowerCase().includes(term)) && matchesClassFormat(session.name, classType)).map((session) => ({ id: session.id, name: session.name, startsAt: session.startsAt, endsAt: session.endsAt, durationInMinutes: session.durationInMinutes, capacity: session.capacity ?? null, bookingCount: session.bookingCount || 0, spotsLeft: session.capacity == null ? null : Math.max(0, session.capacity - (session.bookingCount || 0)), teacherName: session.teacher ? `${session.teacher.firstName || ''} ${session.teacher.lastName || ''}`.trim() : '', locationName: session.inPersonLocation?.name || center }));
+  const params = new URLSearchParams({ page: '0', pageSize: '200', sortBy: 'startsAt', sortOrder: 'ASC', locationId: String(config.id), startAfter: now.toISOString(), startBefore: end.toISOString(), includeCancelled: 'false', includeChildLocations: 'true' });
+  if (hosted) params.append('types[]', 'private');
+  const result = await momence(`/host/sessions?${params}`, {}, config.account);
+  return result.payload || [];
+}
+export async function listSessions(center, classType, daysAhead = 30) {
+  const config = locationConfig(center);
+  const end = new Date(Date.now() + Math.min(60, Math.max(1, daysAhead)) * 86400000);
+  const [scheduled, hostedRows] = await Promise.all([
+    fetchSessions(config, center, end, false),
+    // A host account without private sessions returns an error rather than an empty list.
+    fetchSessions(config, center, end, true).catch((error) => { console.warn(`Hosted session lookup failed for ${center}:`, error?.message || error); return []; }),
+  ]);
+  const hostedIds = new Set(hostedRows.map((session) => session.id));
+  const excluded = ['physique 57', 'p57', 'studio juniors'];
+  const open = scheduled
+    .filter((session) => !session.isCancelled && !hostedIds.has(session.id) && !excluded.some((term) => String(session.name || '').toLowerCase().includes(term)) && !/hosted/i.test(String(session.name || '')) && matchesClassFormat(session.name, classType))
+    .map((session) => normalizeSession(session, center, false));
+  // Hosted classes are one-off events, so they are offered regardless of the form's class format.
+  const hosted = hostedRows
+    .filter((session) => !session.isCancelled)
+    .map((session) => normalizeSession(session, center, true));
+  return [...open, ...hosted].sort((a, b) => String(a.startsAt).localeCompare(String(b.startsAt)));
+}
+// Booking rules differ for hosted classes, so the flag is re-checked server side rather than trusted
+// from the browser or from a form built days earlier.
+export async function isHostedSession(sessionId, config) {
+  try {
+    const end = new Date(Date.now() + 120 * 86400000);
+    const rows = await fetchSessions(config, config.center, end, true);
+    return rows.some((session) => Number(session.id) === Number(sessionId));
+  } catch (error) {
+    console.warn(`Could not verify hosted status for session ${sessionId}:`, error?.message || error);
+    return false;
+  }
+}
+// Hosted classes carry no membership requirement: the seat is booked at no charge.
+async function bookHosted(memberId, sessionId, config) {
+  try {
+    await momence(`/host/sessions/${sessionId}/bookings/free`, { method: 'POST', body: JSON.stringify({ memberId }) }, config.account);
+  } catch (error) {
+    console.warn(`Free booking failed for hosted session ${sessionId}; retrying through checkout:`, error?.message || error);
+    await momence('/host/checkout', { method: 'POST', body: JSON.stringify({ memberId, homeLocationId: config.homeLocationId, items: [{ id: '1', type: 'session', sessionId: Number(sessionId), quantity: 1, attemptedPriceInCurrency: '0' }], paymentMethods: [{ id: '1', type: 'free' }] }) }, config.account);
+  }
 }
 function validateCustomerFields(values, requiresShoeSize) {
   const requiredFields = ['emergencyContactInfo', 'medicalHistory'];
@@ -195,19 +241,19 @@ function validateCustomerFields(values, requiresShoeSize) {
   if (!/^[0-9]{7,15}$/.test(emergency)) throw new Error('Emergency Contact Info must be a phone number.');
 }
 async function saveCustomerFields(memberId, values) {
-  const ids = { fitnessGoal: 8149, emergencyContactInfo: 8251, pregnancyStatus: 8252, medicalHistory: 8253, postNatalStatus: 8254, fnf: 8401, gender: 16549, euShoeSize: 17139, howDidHear: 19050 };
+  const ids = { fitnessGoal: 8149, emergencyContactInfo: 8251, pregnancyStatus: 8252, medicalHistory: 8253, postNatalStatus: 8254, gender: 16549, euShoeSize: 17139, howDidHear: 19050 };
   const mapped = {}; for (const [key, id] of Object.entries(ids)) { let value = String(values[key] || '').trim(); if (key === 'emergencyContactInfo') value = value.replace(/\D/g, ''); if (value) mapped[String(id)] = value; }
   await dashboard('/host/13752/customer-fields/data', { method: 'POST', body: JSON.stringify({ memberId, values: mapped }) });
 }
 export async function signupAdult(input, form) {
-  const config = locationConfig(form.targetStudio || input.center); const created = await createMember(input, config); await signWaivers(created.memberId, input.signatureRealSignature, config);
+  // The profile and booking are completed on the class-selection step, so signup only creates the
+  // Momence member and signs the waivers. Nothing is booked or charged until the guest fills in
+  // their required customer fields and confirms a class.
+  const config = locationConfig(form.targetStudio || input.center);
+  const created = await createMember(input, config);
+  await signWaivers(created.memberId, input.signatureRealSignature, config);
   const plan = config.account === 'mumbai' ? MEMBERSHIPS.mumbai : MEMBERSHIPS[config.id];
-  const paidClassFormat = /strength|cycle/i.test(input.classType || '');
-  const freePaidFormat = form.signupType === 'free' && config.account === 'mumbai' && paidClassFormat;
-  const paidOffer = !freePaidFormat && (form.signupType === 'paid' || config.account === 'bengaluru' || paidClassFormat);
-  if (freePaidFormat && form.sessionId) await bookComplimentary(created.memberId, Number(form.sessionId), config);
-  else if (!paidOffer && !freePaidFormat) { await grantMembership(created.memberId, config, plan.free, false); if (form.sessionId) await bookWithMembership(created.memberId, Number(form.sessionId), config, plan.free); }
-  return { memberId: created.memberId, config, plan, paymentRequired: paidOffer && Boolean(form.sessionId), scheduleRequiresPayment: paidOffer && !form.sessionId, booked: !paidOffer && Boolean(form.sessionId) };
+  return { memberId: created.memberId, config, plan, paymentRequired: false, scheduleRequiresPayment: false, booked: false, sessionId: form.sessionId ? String(form.sessionId) : '' };
 }
 function splitChild(name, parentLastName) { const parts = cleanName(name).split(' ').filter(Boolean); return { firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || cleanName(parentLastName) }; }
 export async function signupKid(input, form) {
@@ -233,14 +279,18 @@ export async function createPaidCheckout({ memberId, form, origin }) {
 export async function selectClassAndContinue({ memberId, sessionId, center, classType, signupType, customerFields, origin }) {
   const config = locationConfig(center); const requiresShoeSize = /cycle|spin/i.test(classType || '');
   validateCustomerFields(customerFields || {}, requiresShoeSize); await saveCustomerFields(Number(memberId), customerFields || {});
+  if (await isHostedSession(Number(sessionId), config)) {
+    await bookHosted(Number(memberId), Number(sessionId), config);
+    return { booked: true, checkoutUrl: null, memberId: Number(memberId), sessionId: Number(sessionId), hosted: true };
+  }
   const freePaidFormat = signupType === 'free' && config.account === 'mumbai' && /strength|cycle/i.test(classType || '');
   if (freePaidFormat) {
     await bookComplimentary(Number(memberId), Number(sessionId), config);
     return { booked: true, checkoutUrl: null, memberId: Number(memberId), sessionId: Number(sessionId) };
   }
-  const requiresPayment = config.account === 'bengaluru' || /strength|cycle/i.test(classType || '');
+  const requiresPayment = signupType === 'paid' || config.account === 'bengaluru' || /strength|cycle/i.test(classType || '');
   if (requiresPayment) {
-    const query = new URLSearchParams({ center, classType }).toString();
+    const query = new URLSearchParams({ center, classType, signupType: signupType || 'paid' }).toString();
     const checkoutUrl = await createPaidCheckout({ memberId: Number(memberId), form: { id: 'schedule', slug: '', targetStudio: center, sessionId: String(sessionId), cancelUrl: `${origin}/classes/${memberId}?${query}` }, origin });
     return { booked: false, checkoutUrl };
   }

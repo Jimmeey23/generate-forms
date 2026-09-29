@@ -76,10 +76,12 @@ export default function FormFill() {
         window.location.assign(result.checkoutUrl);
         return;
       }
-      // Guests not auto-booked (no class, or the class is at another studio) choose one now.
+      // Nothing is booked at submission: adults complete their profile and confirm a class next.
       if (form.signupType !== 'kids' && !booked && result.signup?.memberId) {
         const query = new URLSearchParams({ center, classType: classType || 'Barre', signupType: form.signupType });
         if (form.classFormats?.length) query.set('format', form.classFormats.join(','));
+        // A class pinned on the form opens straight on its profile step.
+        if (result.signup.sessionId) query.set('sessionId', result.signup.sessionId);
         navigate(`/classes/${result.signup.memberId}?${query}`);
         return;
       }

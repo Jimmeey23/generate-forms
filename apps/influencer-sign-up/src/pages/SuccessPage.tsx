@@ -29,6 +29,12 @@ function formatSessionTime(startsAt: string) {
   return new Date(startsAt).toLocaleString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' });
 }
 
+function formatSessionWindow(startsAt: string, endsAt?: string, durationInMinutes?: number) {
+  const opening = formatSessionTime(startsAt);
+  if (endsAt) return `${opening} – ${new Date(endsAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`;
+  return durationInMinutes ? `${opening} · ${durationInMinutes} min` : opening;
+}
+
 export default function SuccessPage() {
   const details = loadSignupDetails();
   const center = details?.center || '';
@@ -44,12 +50,13 @@ export default function SuccessPage() {
   useEffect(() => { celebrate(); }, []);
 
   const note = booked
-    ? `${isKids && details?.childName ? `${details.childName}'s` : 'Your'} spot${classType ? ` in ${classType}` : ''}${center ? ` at ${center}` : ''} is confirmed${details?.paid ? ' and your payment is complete' : ''}. We can’t wait to see you in class.`
+    ? `${isKids && details?.childName ? `${details.childName}'s` : 'Your'} spot in ${session?.name || classType || 'class'}${session?.teacherName ? ` with ${session.teacherName}` : ''}${center ? ` at ${center}` : ''} is confirmed${details?.paid ? ' and your payment is complete' : ''}. We can’t wait to see you in class.`
     : `Thank you for signing up${details?.formTitle ? ` for ${details.formTitle}` : ''}. The team${center ? ` at ${center}` : ''} will reach out shortly with everything you need${classType ? ` for your first ${classType} class` : ''}.`;
   const facts = [
-    center && { icon: MapPin, label: 'Studio', value: center },
-    classType && { icon: Dumbbell, label: 'Class', value: session?.name || classType },
-    session?.startsAt && { icon: Clock3, label: 'When', value: formatSessionTime(session.startsAt) },
+    (session?.locationName || center) && { icon: MapPin, label: 'Studio', value: session?.locationName || center },
+    (session?.name || classType) && { icon: Dumbbell, label: 'Class', value: session?.name || classType },
+    session?.name && classType && !session.name.toLowerCase().includes(classType.toLowerCase()) && { icon: Dumbbell, label: 'Format', value: classType },
+    session?.startsAt && { icon: Clock3, label: 'When', value: formatSessionWindow(session.startsAt, session.endsAt, session.durationInMinutes) },
     session?.teacherName && { icon: UserRound, label: 'Instructor', value: session.teacherName },
     isKids && details?.childName && { icon: UserRound, label: 'Junior', value: details.childName },
   ].filter(Boolean) as { icon: React.ElementType; label: string; value: string }[];

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
-import { createPaidCheckout, fulfillCheckout, handleStripeWebhook, listSessions, selectClassAndContinue, signupAdult, signupKid } from './momence.mjs';
+import { fulfillCheckout, handleStripeWebhook, listSessions, selectClassAndContinue, signupAdult, signupKid } from './momence.mjs';
 import { appendSubmissionRow, createFormSheet, sheetsConfigured } from './sheets.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -397,11 +397,10 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   // The lead is recorded first so the studio can follow up even if later Momence profile,
   // waiver, membership, or booking operations need manual recovery.
   let signup = null;
-  let checkoutUrl = null;
   let signupError = null;
   try {
     signup = operationalForm.signupType === 'kids' ? await signupKid(responses, operationalForm) : await signupAdult(responses, operationalForm);
-    if (signup.paymentRequired) checkoutUrl = await createPaidCheckout({ memberId: signup.memberId, form: operationalForm, origin: (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '') });
+    // Checkout is created on the class step, once the guest's required profile fields are saved.
   } catch (error) {
     signupError = error;
     console.error(`Momence signup failed for submission ${submission.id}:`, error?.message || error);
@@ -410,13 +409,13 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
     const sheetData = await ensureFormSheet(form);
     if (sheetData.sheetId) await appendSubmissionRow(sheetData, { responses, meta: {
       _submittedAt: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }), _submissionId: submission.id, _momenceLead: webhookStatus,
-      _momenceSignup: signupError ? `ERROR: ${String(signupError?.message || signupError).slice(0, 300)}` : (signup?.booked ? 'Booked' : checkoutUrl ? 'Awaiting payment' : 'Created'),
+      _momenceSignup: signupError ? `ERROR: ${String(signupError?.message || signupError).slice(0, 300)}` : (signup ? 'Created · awaiting class selection' : 'Not created'),
       _utmSource: utmSource, _utmCampaign: utmCampaign, _utmChannel: utmChannel, _utmMedium: attribution.utmMedium, _referrer: attribution.referrer,
     } });
   } catch (sheetError) { console.error(`Submission ${submission.id} saved, but Google Sheet append failed:`, sheetError?.message || sheetError); }
   // Paid signups cannot continue to checkout without a Momence member; free and kids signups go through regardless.
   if (signupError && operationalForm.signupType === 'paid') throw signupError;
-  res.status(201).json({ success: true, submissionId: submission.id, webhookStatus, signup, checkoutUrl, signupStatus: signupError ? 'MOMENCE_FAILED' : 'OK', signupError: signupError ? String(signupError?.message || signupError).slice(0, 300) : '' });
+  res.status(201).json({ success: true, submissionId: submission.id, webhookStatus, signup, checkoutUrl: null, signupStatus: signupError ? 'MOMENCE_FAILED' : 'OK', signupError: signupError ? String(signupError?.message || signupError).slice(0, 300) : '' });
 }));
 
 app.get('/api/payments/confirm', asyncRoute(async (req, res) => {
