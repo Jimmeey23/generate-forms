@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@project/components/ui/button';
 import { Input } from '@project/components/ui/input';
 import { Label } from '@project/components/ui/label';
-import { Loader2, ArrowRight, ChevronLeft, Sparkles, Zap, Share2, BarChart3, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle, Image as ImageIcon, Tag, CalendarClock, Plus, Pencil, Trash2, GripVertical, Wand2 } from 'lucide-react';
+import { Loader2, ArrowRight, ChevronLeft, Sparkles, Zap, Share2, BarChart3, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle, Image as ImageIcon, Tag, CalendarClock, Plus, Pencil, Trash2, GripVertical, Wand2, ChevronDown } from 'lucide-react';
 import { generateForm, describeForm, getMomenceSessions, saveFormSlots, DEFAULT_SLOT_BOOKING, type MomenceSession, type SlotBooking } from '@/lib/api';
 import SlotWizard from '@/components/SlotWizard';
 import WizardSteps, { type WizardStep } from '@/components/WizardSteps';
@@ -96,6 +96,7 @@ export default function LandingPage() {
   const [fieldIsNew, setFieldIsNew] = useState(false);
   const [describeText, setDescribeText] = useState('');
   const [describing, setDescribing] = useState(false);
+  const [showDescribe, setShowDescribe] = useState(false);
   // UTMs track the campaign names until the organiser edits one.
   const [utm, setUtm] = useState({ source: '', channel: '', campaign: '' });
   const [utmTouched, setUtmTouched] = useState(false);
@@ -377,32 +378,52 @@ export default function LandingPage() {
                     )}
                 {step.id === 'type' && (
                   <>
-                    <div className="rounded-xl neu-inset p-4 mb-5">
-                      <label htmlFor="describe" className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
-                        <Wand2 className="w-3.5 h-3.5" /> Describe it instead
-                      </label>
-                      <textarea id="describe" value={describeText} onChange={(e) => setDescribeText(e.target.value)} rows={3}
-                        placeholder="Open house on the 14th. Ask for their t-shirt size (S/M/L), which classes they want to try, and any injuries."
-                        className="w-full rounded-lg bg-transparent px-3 py-2 text-sm outline-none resize-none border border-border focus-visible:ring-2 focus-visible:ring-primary/40" />
-                      <div className="flex flex-wrap items-center justify-between gap-3 mt-2">
-                        <p className="text-xs text-muted-foreground">We fill in the type and questions. You can change anything after.</p>
-                        <Button size="sm" onClick={handleDescribe} disabled={describing} className="gap-1.5 shrink-0 neu-pressable">
-                          {describing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Reading...</> : <><Wand2 className="w-3.5 h-3.5" />Build it</>}
-                        </Button>
-                      </div>
-                    </div>
-
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" role="radiogroup" aria-label="Signup flow">
                       {SIGNUP_FLOWS.map((option) => (
                         <OptionTile key={option.value} group="flow" selected={signupType === option.value} onSelect={() => chooseSignupType(option.value)}>
-                          <option.icon className="w-4 h-4 mb-3" style={{ color: signupType === option.value ? '#a855f7' : undefined }} />
+                          <option.icon className="w-4 h-4 mb-3" style={{ color: signupType === option.value ? 'hsl(var(--primary))' : undefined }} />
                           <span className="block text-sm font-semibold">{option.label}</span>
                           <span className="block text-xs text-muted-foreground mt-0.5">{option.desc}</span>
                         </OptionTile>
                       ))}
                     </div>
+
+                    {/* Shortcut, kept out of the way: picking a type by hand is the main path. */}
+                    <div className="mt-4">
+                      <button type="button" onClick={() => setShowDescribe((open) => !open)}
+                        aria-expanded={showDescribe} aria-controls="describe-panel"
+                        className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                        <span className="w-7 h-7 rounded-lg flex items-center justify-center neu-raised-sm shrink-0">
+                          <Wand2 className="w-3.5 h-3.5" style={{ color: 'hsl(var(--primary))' }} />
+                        </span>
+                        Describe it instead
+                        <ChevronDown className="w-3.5 h-3.5 transition-transform" style={{ transform: showDescribe ? 'rotate(180deg)' : undefined }} />
+                      </button>
+
+                      <AnimatePresence initial={false}>
+                        {showDescribe && (
+                          <motion.div id="describe-panel" key="describe-panel"
+                            initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.22, ease: EASE }} className="overflow-hidden">
+                            <div className="rounded-xl neu-inset p-4 mt-3">
+                              <label htmlFor="describe" className="sr-only">Describe the form you need</label>
+                              <textarea id="describe" value={describeText} onChange={(e) => setDescribeText(e.target.value)} rows={3}
+                                placeholder="Open house on the 14th. Ask for their t-shirt size (S/M/L), which classes they want to try, and any injuries."
+                                className="w-full rounded-lg bg-transparent px-3 py-2 text-sm outline-none resize-none border border-border focus-visible:ring-2 focus-visible:ring-primary/40" />
+                              <div className="flex flex-wrap items-center justify-between gap-3 mt-2">
+                                <p className="text-xs text-muted-foreground">We fill in the type and questions. You can change anything after.</p>
+                                <Button size="sm" onClick={handleDescribe} disabled={describing} className="gap-1.5 shrink-0 neu-pressable">
+                                  {describing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Reading...</> : <><Wand2 className="w-3.5 h-3.5" />Build it</>}
+                                </Button>
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
                   </>
                 )}
+
                 {step.id === 'campaign' && (
                   <>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
