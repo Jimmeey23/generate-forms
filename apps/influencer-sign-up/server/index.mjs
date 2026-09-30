@@ -8,6 +8,7 @@ import WebSocket from 'ws';
 import { fulfillCheckout, handleStripeWebhook, listSessions, selectClassAndContinue, signupAdult, signupKid } from './momence.mjs';
 import { appendSubmissionRow, createFormSheet, sheetsConfigured } from './sheets.mjs';
 import { describeToForm, openAiConfigured } from './textToForm.mjs';
+import { HERO_IMAGES, FORMAT_HERO_INDEXES, KIDS_HERO_INDEXES } from '../shared/heroImages.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
@@ -34,34 +35,8 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
 }));
 app.use(express.json({ limit: '1mb' }));
 
-const HERO_IMAGES = [
-  'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/s9wMadXfeYFPAp7MyaEAgr/pasted-image-1782902048664-tp5ozxot.jpg',
-  'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/cJjjjDeBebwXRDrFVfFJaK/pasted-image-1782902048703-ofe6memh.jpg',
-  'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/mmUCR2FxaR9Fb3jCAhurPv/pasted-image-1782902048717-7wv8yd0j.jpg',
-  'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/u9jU9DNCjvonekiUXxBbJH/pasted-image-1782902048729-6njfv4g9.jpg',
-  'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/oMkb6DjugzjG797U55LBVM/pasted-image-1782902048752-etw407bk.jpg',
-  'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/58qNnJL3EL4MF62HQEs6yA/pasted-image-1782902048768-i04s9o55.jpg',
-  'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/61eCRLbFKFPwoowdwvvaH2/pasted-image-1782902048789-09kcsqk1.jpg',
-  'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/n3WfwNPSpc7hXetukVhWZc/pasted-image-1782902048806-m84p5gkd.jpg',
-  'https://images.fillout.com/orgid-616887/flowpublicid-7ksdzxvvc1/widgetid-default/hE8EfAKjgiatvJCWPRN311/pasted-image-1782902134354-vxs5bt0r.jpg',
-  // Studio photography served from public/Heroes (optimised copies of the originals).
-  '/Heroes/opt/barre.jpg',
-  '/Heroes/opt/barre1.jpg',
-  '/Heroes/opt/barre3.jpg',
-  '/Heroes/opt/cycle.jpg',
-  '/Heroes/opt/cycle1.jpg',
-  '/Heroes/opt/cycle3.jpg',
-  '/Heroes/opt/strength.jpg',
-  '/Heroes/opt/strength9.jpg',
-  '/Heroes/opt/kids.jpg',
-  '/Heroes/opt/kids1.jpg',
-  '/Heroes/opt/kids2.jpg',
-  '/Heroes/opt/kids4.jpg',
-];
 // Indexes into HERO_IMAGES that picture each class format.
-const FORMAT_HERO_INDEXES = { Barre: [1, 2, 8, 9, 10, 11], 'Strength Lab': [3, 4, 5, 6, 15, 16], powerCycle: [0, 7, 12, 13, 14] };
 // Juniors forms use the kids photography; adult forms without a chosen format use everything else.
-const KIDS_HERO_INDEXES = [17, 18, 19, 20];
 const CLASS_FORMATS = Object.keys(FORMAT_HERO_INDEXES);
 const BRAND_LOGO = 'https://images.fillout.com/orgid-66954/flowpublicid-uxjuax2dbd/widgetid-default/jART4M3Yb27Pc9DpgJCpz5/pasted-image-1782902048740-lg84b5zl.png';
 // New forms use the brand blue so the form matches the landing sections beneath it.

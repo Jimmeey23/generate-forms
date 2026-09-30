@@ -12,6 +12,7 @@ import { sortDrafts, toSlotInput, type SlotDraft } from '@/lib/slots';
 import { FieldEditorDialog } from '@/components/FieldEditor';
 import { toast } from 'sonner';
 import { BRAND_LOGO, HERO_IMAGES } from '@/lib/constants';
+import { FORMAT_HERO_INDEXES, KIDS_HERO_INDEXES } from '../../shared/heroImages.mjs';
 import { motion, AnimatePresence, MotionConfig, type Variants } from 'framer-motion';
 
 import type { SignupType } from '@/lib/api';
@@ -30,16 +31,14 @@ const STUDIOS_BY_CITY: { city: string; studios: string[] }[] = [
 
 const ALL_STUDIOS = STUDIOS_BY_CITY.flatMap((group) => group.studios);
 
-// Juniors photography; adult hero pools exclude these.
-const KIDS_HERO_INDEXES = [17, 18, 19, 20];
 
 type ClassFormat = 'Barre' | 'Strength Lab' | 'powerCycle';
 
 // Indexes into HERO_IMAGES that picture each format; the server picks form heroes from the same sets.
 const CLASS_FORMATS: { value: ClassFormat; desc: string; images: number[] }[] = [
-  { value: 'Barre', desc: 'Signature interval overload', images: [1, 2, 8, 9, 10, 11] },
-  { value: 'Strength Lab', desc: 'Targeted weight training', images: [3, 4, 5, 6, 15, 16] },
-  { value: 'powerCycle', desc: 'High-intensity rhythm ride', images: [0, 7, 12, 13, 14] },
+  { value: 'Barre', desc: 'Signature interval overload', images: FORMAT_HERO_INDEXES.Barre },
+  { value: 'Strength Lab', desc: 'Targeted weight training', images: FORMAT_HERO_INDEXES['Strength Lab'] },
+  { value: 'powerCycle', desc: 'High-intensity rhythm ride', images: FORMAT_HERO_INDEXES.powerCycle },
 ];
 const formatsForStudio = (studio: string): ClassFormat[] => (/bengaluru/i.test(studio) ? ['Barre'] : CLASS_FORMATS.map((f) => f.value));
 // Mirrors the server's slug rule, so what the builder shows is what gets saved.
