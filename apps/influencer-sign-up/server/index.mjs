@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
 import { fulfillCheckout, handleStripeWebhook, listSessions, selectClassAndContinue, signupAdult, signupKid } from './momence.mjs';
 import { appendSubmissionRow, createFormSheet, sheetsConfigured } from './sheets.mjs';
+import { describeToForm, openAiConfigured } from './textToForm.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
@@ -65,6 +66,12 @@ const CLASS_FORMATS = Object.keys(FORMAT_HERO_INDEXES);
 const BRAND_LOGO = 'https://images.fillout.com/orgid-66954/flowpublicid-uxjuax2dbd/widgetid-default/jART4M3Yb27Pc9DpgJCpz5/pasted-image-1782902048740-lg84b5zl.png';
 // New forms use the brand blue so the form matches the landing sections beneath it.
 const BRAND_ACCENT = '#7FD3F7';
+// Each form draws a different accent so a studio's forms are told apart at a glance.
+// Every value is dark enough to stay legible as text on the light form background.
+const ACCENT_PALETTE = [
+  '#2563eb', '#7c3aed', '#c026d3', '#db2777', '#e11d48', '#ea580c',
+  '#ca8a04', '#16a34a', '#059669', '#0891b2', '#0284c7', '#4f46e5',
+];
 const TEMPLATE_FIELDS = [
   { id: 'firstName', type: 'text', label: 'First Name', placeholder: 'Enter your first name', required: true, gridCol: 'half', helperText: '' },
   { id: 'lastName', type: 'text', label: 'Last Name', placeholder: 'Enter your last name', required: true, gridCol: 'half' },
@@ -80,7 +87,32 @@ const SIGNATURE_FIELDS = [
   { id: 'waiverAccepted', type: 'terms', label: 'I have read, signed, and accept the waiver and Physique 57 India privacy terms.', required: true, gridCol: 'full' },
 ];
 const SUPPORTED_STUDIOS = ['Kwality House, Kemps Corner', 'Supreme HQ, Bandra', 'Kenkere House, Bengaluru', 'The Studio by Copper & Cloves, Bengaluru', 'Plash Pilates, Bengaluru'];
-function fieldsForSignupType(signupType, studios, classFormats = []) {
+const CUSTOM_FIELD_TYPES = ['text', 'email', 'tel', 'number', 'textarea', 'date', 'datetime', 'select', 'radio', 'checkbox', 'multiselect', 'url', 'rating', 'readonly'];
+// Fields the organiser adds in the builder. Ids are namespaced so they can never
+// collide with the template fields the signup flows depend on.
+function customFields(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 40).map((field, index) => {
+    const type = CUSTOM_FIELD_TYPES.includes(field?.type) ? field.type : 'text';
+    const label = String(field?.label || '').trim().slice(0, 200);
+    if (!label) return null;
+    const options = Array.isArray(field?.options)
+      ? [...new Set(field.options.map((option) => String(option).trim()).filter(Boolean))].slice(0, 50)
+      : [];
+    if (['select', 'radio', 'checkbox', 'multiselect'].includes(type) && !options.length) return null;
+    return {
+      id: `custom_${index}_${String(field?.id || label).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40) || 'field'}`,
+      type, label,
+      placeholder: String(field?.placeholder || '').slice(0, 200),
+      helperText: String(field?.helperText || '').slice(0, 300),
+      required: type !== 'readonly' && field?.required === true,
+      gridCol: field?.gridCol === 'half' ? 'half' : 'full',
+      ...(options.length ? { options } : {}),
+    };
+  }).filter(Boolean);
+}
+
+function fieldsForSignupType(signupType, studios, classFormats = [], extraFields = []) {
   const offered = [...new Set(studios.flatMap(getClassOptions))];
   const formats = classFormats.length ? classFormats.filter((format) => offered.includes(format)) : offered;
   const formatHelp = classFormats.length ? { helperText: `This form is for ${formats.join(' and ')} classes` } : {};
@@ -90,16 +122,17 @@ function fieldsForSignupType(signupType, studios, classFormats = []) {
     : { id: 'center', type: 'select', label: 'Preferred Studio', placeholder: 'Choose your studio', required: true, gridCol: 'full', helperText: 'Select the location nearest to you', options: studios };
   const common = [...adult.slice(0, 4), studioField];
   // Slot bookings take contact details and a slot. No class, no waiver, no signature.
-  if (signupType === 'slots') return [...common, TEMPLATE_FIELDS.find((field) => field.id === 'terms')];
+  if (signupType === 'slots') return [...common, ...extraFields, TEMPLATE_FIELDS.find((field) => field.id === 'terms')];
   if (signupType === 'kids') return [
     ...common,
     { id: 'childName', type: 'text', label: "Child's full name", required: true, gridCol: 'full' },
     { id: 'childAge', type: 'number', label: "Child's age", required: true, gridCol: 'half', min: 5, max: 17 },
     { id: 'childDateOfBirth', type: 'date', label: "Child's date of birth", required: true, gridCol: 'half' },
     { id: 'batch', type: 'text', label: 'Preferred Juniors class / batch', placeholder: 'Optional preference', required: false, gridCol: 'full' },
+    ...extraFields,
     ...SIGNATURE_FIELDS.map((field) => field.id === 'signatureName' ? { ...field, label: 'Parent/guardian signature name' } : field),
   ];
-  return [...common, adult.find((field) => field.id === 'classType'), ...SIGNATURE_FIELDS].filter(Boolean);
+  return [...common, adult.find((field) => field.id === 'classType'), ...extraFields, ...SIGNATURE_FIELDS].filter(Boolean);
 }
 function getClassOptions(studio) {
   const value = String(studio || '').toLowerCase();
@@ -200,6 +233,16 @@ function parseSlotInput(raw, index, defaultCapacity) {
   };
 }
 
+// Forms made before the palette all carry the legacy light-cyan accent, which has too
+// little contrast on the light theme. Give those a stable palette colour from their id
+// instead of rewriting stored data.
+const LEGACY_ACCENT = '#7FD3F7';
+function accentFor(record, data) {
+  const stored = String(data.accentColor || '');
+  if (/^#[0-9a-f]{6}$/i.test(stored) && stored.toUpperCase() !== LEGACY_ACCENT) return stored;
+  return ACCENT_PALETTE[hashString(String(record.id || record.slug || '')) % ACCENT_PALETTE.length];
+}
+
 function publicForm(record, req) {
   const data = record.form_data || {};
   const fields = normalizeFields(Array.isArray(data) ? data : data.fields, Array.isArray(data.targetStudios));
@@ -211,7 +254,7 @@ function publicForm(record, req) {
     utmChannel: data.utmChannel || '', utmCampaign: data.utmCampaign || '', status: record.status || 'Draft', submissionCount: record.submission_count || 0,
     createdAt: record.created_at || '', shareUrl: `${appUrl}/f/${record.slug || ''}`, hashtag: data.hashtag || '', heroPosition: data.heroPosition || 'center',
     heroPositionX: data.heroPositionX ?? 50, heroPositionY: data.heroPositionY ?? 50, heroScale: data.heroScale ?? 1,
-    accentColor: data.accentColor || '#00f5a0', heroHeight: data.heroHeight || 520, heroWidth: data.heroWidth || 48,
+    accentColor: accentFor(record, data), heroHeight: data.heroHeight || 520, heroWidth: data.heroWidth || 48,
     hashtagSize: data.hashtagSize || 'sm', hashtagStyle: data.hashtagStyle || 'neon', hashtagPosition: data.hashtagPosition || 'left', logoPosition: data.logoPosition || 'left',
     logoSize: data.logoSize || 'lg', logoInvert: false, logoUrl: data.logoUrl || BRAND_LOGO,
     influencerName: data.influencerName || '', eventName: data.eventName || '', metadataTitle: data.metadataTitle || title,
@@ -247,6 +290,14 @@ app.get('/api/health', asyncRoute(async (_req, res) => {
   if (error) throw error;
   res.json({ ok: true });
 }));
+// Turns a plain-English description into a draft the builder can load and edit.
+app.post('/api/describe-form', asyncRoute(async (req, res) => {
+  const description = String(req.body.description || '').trim();
+  if (description.length < 8) return res.status(400).json({ error: 'Describe the form in a sentence or two.' });
+  const draft = await describeToForm(description);
+  res.json({ ...draft, aiAvailable: openAiConfigured() });
+}));
+
 app.post('/api/generate-form', asyncRoute(async (req, res) => {
   if (typeof req.body.prompt !== 'string' || !req.body.prompt.trim()) return res.status(400).json({ error: 'prompt is required' });
   const prompt = req.body.prompt.trim();
@@ -299,10 +350,12 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   // The builder may pin a hero and the UTMs; anything else falls back to the generated defaults.
   const heroImage = HERO_IMAGES.includes(String(req.body.heroImage || '')) ? String(req.body.heroImage) : heroPool[(seed >>> 4) % heroPool.length];
   const utmOr = (value, fallback) => utmSlug(value) || fallback;
+  const requestedAccent = String(req.body.accentColor || '').trim();
+  const accentColor = /^#[0-9a-f]{6}$/i.test(requestedAccent) ? requestedAccent : ACCENT_PALETTE[(seed >>> 9) % ACCENT_PALETTE.length];
   const slotBooking = normalizeSlotBooking(req.body.slotBooking);
   // The Slot Bookings type is defined by its schedule, so the toggle is implicit.
   if (signupType === 'slots') slotBooking.enabled = true;
-  const formData = { fields: fieldsForSignupType(signupType, targetStudios, classFormats), signupType, targetStudio, targetStudios, sessionId, sessionStudio, classFormat, classFormats, submissionLimit, slotBooking, eventDate, eventTime, eventVenue, layout: 'stacked', heroImage, heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: BRAND_ACCENT, formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: utmOr(req.body.utmSource, hostSlug || eventSlug || 'general'), utmChannel: utmOr(req.body.utmChannel, eventSlug || hostSlug || 'general'), utmCampaign: utmOr(req.body.utmCampaign, eventSlug || hostSlug || 'general'), hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
+  const formData = { fields: fieldsForSignupType(signupType, targetStudios, classFormats, customFields(req.body.customFields)), signupType, targetStudio, targetStudios, sessionId, sessionStudio, classFormat, classFormats, submissionLimit, slotBooking, eventDate, eventTime, eventVenue, layout: 'stacked', heroImage, heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor, formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: utmOr(req.body.utmSource, hostSlug || eventSlug || 'general'), utmChannel: utmOr(req.body.utmChannel, eventSlug || hostSlug || 'general'), utmCampaign: utmOr(req.body.utmCampaign, eventSlug || hostSlug || 'general'), hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
   const slug = await createUniqueSlug(eventName || influencerName || campaignName);
   const { data, error } = await supabase.from('forms').insert({ title, description, slug, form_data: formData, theme_color: 'midnight', status: 'Draft', creator_email: req.body.creatorEmail || '' }).select().single();
   if (error) throw error;
@@ -331,7 +384,7 @@ app.patch('/api/forms/:id', asyncRoute(async (req, res) => {
   if (req.body.description !== undefined) update.description = req.body.description;
   if (req.body.themeColor !== undefined) update.theme_color = req.body.themeColor;
   const formData = { ...(existing.form_data || {}) };
-  const dataKeys = ['fields', 'heroImage', 'heroPositionX', 'heroPositionY', 'heroHeight', 'heroWidth', 'layout', 'formWidth', 'formMinHeight', 'formBorderRadius', 'formPadding', 'boldLabels', 'utmSource', 'utmChannel', 'utmCampaign', 'hashtagSize', 'hashtagStyle', 'hashtagPosition', 'logoPosition', 'logoSize', 'logoInvert'];
+  const dataKeys = ['fields', 'accentColor', 'heroImage', 'heroPositionX', 'heroPositionY', 'heroHeight', 'heroWidth', 'layout', 'formWidth', 'formMinHeight', 'formBorderRadius', 'formPadding', 'boldLabels', 'utmSource', 'utmChannel', 'utmCampaign', 'hashtagSize', 'hashtagStyle', 'hashtagPosition', 'logoPosition', 'logoSize', 'logoInvert'];
   let changed = false;
   for (const key of dataKeys) if (req.body[key] !== undefined) { formData[key] = req.body[key]; changed = true; }
   if (req.body.slotBooking !== undefined) { formData.slotBooking = normalizeSlotBooking(req.body.slotBooking); changed = true; }

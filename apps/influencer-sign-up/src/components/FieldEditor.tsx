@@ -30,10 +30,15 @@ const FIELD_TYPES = [
   { value: 'checkbox', label: 'Checkboxes' },
   { value: 'url', label: 'URL' },
   { value: 'rating', label: 'Rating' },
+  { value: 'multiselect', label: 'Multi-select' },
+  { value: 'datetime', label: 'Date & Time' },
+  { value: 'readonly', label: 'Read-only text' },
   { value: 'terms', label: 'Terms & Conditions' },
 ];
 
-const hasOptions = (type: string) => ['select', 'radio', 'checkbox'].includes(type);
+const hasOptions = (type: string) => ['select', 'radio', 'checkbox', 'multiselect'].includes(type);
+// Read-only blocks are copy, so they take no placeholder and cannot be required.
+const isStatic = (type: string) => type === 'readonly';
 
 export function FieldEditorDialog({ field, open, onClose, onSave }: { field: Field | null; open: boolean; onClose: () => void; onSave: (field: Field) => void }) {
   const [form, setForm] = useState<Field>({ id: `field_${Date.now()}`, type: 'text', label: '', required: false, gridCol: 'full' });
@@ -78,18 +83,22 @@ export function FieldEditorDialog({ field, open, onClose, onSave }: { field: Fie
               </Select>
             </div>
           </div>
+          {!isStatic(form.type) && (
+            <div>
+              <Label className="text-xs text-muted-foreground">Placeholder</Label>
+              <Input value={form.placeholder || ''} onChange={(e) => update({ placeholder: e.target.value })} className="h-9" />
+            </div>
+          )}
           <div>
-            <Label className="text-xs text-muted-foreground">Placeholder</Label>
-            <Input value={form.placeholder || ''} onChange={(e) => update({ placeholder: e.target.value })} className="h-9" />
-          </div>
-          <div>
-            <Label className="text-xs text-muted-foreground">Helper Text</Label>
+            <Label className="text-xs text-muted-foreground">{isStatic(form.type) ? 'Body text' : 'Helper Text'}</Label>
             <Input value={form.helperText || ''} onChange={(e) => update({ helperText: e.target.value })} className="h-9" />
           </div>
-          <div className="flex items-center justify-between">
-            <Label className="text-sm">Required</Label>
-            <Switch checked={form.required || false} onCheckedChange={(v) => update({ required: v })} />
-          </div>
+          {!isStatic(form.type) && (
+            <div className="flex items-center justify-between">
+              <Label className="text-sm">Required</Label>
+              <Switch checked={form.required || false} onCheckedChange={(v) => update({ required: v })} />
+            </div>
+          )}
           {hasOptions(form.type) && (
             <div>
               <Label className="text-xs text-muted-foreground">Options</Label>

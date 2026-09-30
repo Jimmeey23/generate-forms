@@ -43,7 +43,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return response.json();
 }
 
-export const generateForm = (input: { prompt: string; creatorEmail?: string; signupType: SignupType; targetStudios: string[]; sessionId?: string; sessionStudio?: string; classFormats?: string[]; submissionLimit?: number; eventDate?: string; eventTime?: string; eventVenue?: string; heroImage?: string; utmSource?: string; utmChannel?: string; utmCampaign?: string; slotBooking?: SlotBooking }) => request<{ form: FormRecord }>('/api/generate-form', { method: 'POST', body: JSON.stringify(input) });
+export const generateForm = (input: { prompt: string; creatorEmail?: string; signupType: SignupType; targetStudios: string[]; sessionId?: string; sessionStudio?: string; classFormats?: string[]; submissionLimit?: number; eventDate?: string; eventTime?: string; eventVenue?: string; heroImage?: string; customFields?: any[]; utmSource?: string; utmChannel?: string; utmCampaign?: string; slotBooking?: SlotBooking }) => request<{ form: FormRecord }>('/api/generate-form', { method: 'POST', body: JSON.stringify(input) });
 export const getForms = (input: { creatorEmail?: string }) => request<GetFormsOutputType>(`/api/forms${input.creatorEmail ? `?creatorEmail=${encodeURIComponent(input.creatorEmail)}` : ''}`);
 export const getForm = (input: { id?: string; slug?: string }) => request<GetFormOutputType>(`/api/forms/${encodeURIComponent(input.id || input.slug || '')}${input.slug ? '?by=slug' : ''}`);
 export const updateForm = (input: { id: string; [key: string]: any }) => {
@@ -57,6 +57,9 @@ export const submitForm = (input: { formId: string; responses: Record<string, an
   const { formId, ...body } = input;
   return request<{ success: boolean; submissionId: string; webhookStatus: string; checkoutUrl?: string | null; signup?: { memberId: number; booked?: boolean; sessionId?: string } | null; waitlisted?: boolean; slotLabel?: string; signupStatus?: 'OK' | 'MOMENCE_FAILED'; signupError?: string }>(`/api/forms/${encodeURIComponent(formId)}/submissions`, { method: 'POST', body: JSON.stringify(body) });
 };
+export type FormDraft = { title: string; description: string; signupType: string; fields: any[]; engine: 'openai' | 'parser'; note?: string; aiAvailable: boolean };
+export const describeForm = (input: { description: string }) => request<FormDraft>('/api/describe-form', { method: 'POST', body: JSON.stringify(input) });
+
 export const getFormSlots = (input: { formId: string }) => request<{ slots: FormSlot[] }>(`/api/forms/${encodeURIComponent(input.formId)}/slots`);
 export const saveFormSlots = (input: { formId: string; slots: SlotInput[] }) => request<{ slots: FormSlot[] }>(`/api/forms/${encodeURIComponent(input.formId)}/slots`, { method: 'PUT', body: JSON.stringify({ slots: input.slots }) });
 export const confirmPayment = (checkoutSessionId: string) => request<{ success: boolean; booking: { memberId: number; sessionId: number } }>(`/api/payments/confirm?checkout_session_id=${encodeURIComponent(checkoutSessionId)}`);

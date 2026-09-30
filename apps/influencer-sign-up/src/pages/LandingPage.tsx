@@ -3,12 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@project/components/ui/button';
 import { Input } from '@project/components/ui/input';
 import { Label } from '@project/components/ui/label';
-import { Loader2, ArrowRight, ChevronLeft, Sparkles, Zap, Share2, BarChart3, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle, Image as ImageIcon, Tag, CalendarClock } from 'lucide-react';
-import { generateForm, getMomenceSessions, saveFormSlots, DEFAULT_SLOT_BOOKING, type MomenceSession, type SlotBooking } from '@/lib/api';
+import { Loader2, ArrowRight, ChevronLeft, Sparkles, Zap, Share2, BarChart3, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle, Image as ImageIcon, Tag, CalendarClock, Plus, Pencil, Trash2, GripVertical, Wand2 } from 'lucide-react';
+import { generateForm, describeForm, getMomenceSessions, saveFormSlots, DEFAULT_SLOT_BOOKING, type MomenceSession, type SlotBooking } from '@/lib/api';
 import SlotWizard from '@/components/SlotWizard';
 import WizardSteps, { type WizardStep } from '@/components/WizardSteps';
 import HeroPicker from '@/components/HeroPicker';
 import { sortDrafts, toSlotInput, type SlotDraft } from '@/lib/slots';
+import { FieldEditorDialog } from '@/components/FieldEditor';
 import { toast } from 'sonner';
 import { BRAND_LOGO, HERO_IMAGES } from '@/lib/constants';
 import { motion, AnimatePresence, MotionConfig, type Variants } from 'framer-motion';
@@ -42,6 +43,8 @@ const CLASS_FORMATS: { value: ClassFormat; desc: string; images: number[] }[] = 
 ];
 const formatsForStudio = (studio: string): ClassFormat[] => (/bengaluru/i.test(studio) ? ['Barre'] : CLASS_FORMATS.map((f) => f.value));
 // Mirrors the server's slug rule, so what the builder shows is what gets saved.
+type BuilderField = { id: string; type: string; label: string; placeholder?: string; required?: boolean; helperText?: string; options?: string[]; gridCol?: string };
+
 const utmSlug = (value: string) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 const toggle = <T,>(list: T[], value: T) => (list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
 const IST = { timeZone: 'Asia/Kolkata' } as const;
@@ -54,6 +57,13 @@ const sessionTime = (session: StudioSession) => new Date(session.startsAt).toLoc
 const EASE = [0.16, 1, 0.3, 1] as const;
 const stagger: Variants = { hidden: {}, show: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } } };
 const rise: Variants = { hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: EASE } } };
+
+const FIELD_TYPE_LABELS: Record<string, string> = {
+  text: 'Text', email: 'Email', tel: 'Phone', number: 'Number', textarea: 'Long text',
+  date: 'Date', datetime: 'Date & time', select: 'Dropdown', radio: 'Radio buttons',
+  checkbox: 'Checkboxes', multiselect: 'Multi-select', url: 'URL', rating: 'Rating',
+  readonly: 'Read-only text', terms: 'Terms',
+};
 
 const UTM_FIELDS = [
   { key: 'source' as const, label: 'Source', placeholder: 'maia_sethna' },
@@ -80,6 +90,13 @@ export default function LandingPage() {
   const [slotBooking, setSlotBooking] = useState<SlotBooking>(DEFAULT_SLOT_BOOKING);
   const [slotDrafts, setSlotDrafts] = useState<SlotDraft[]>([]);
   const [heroImage, setHeroImage] = useState('');
+  // Extra questions the organiser adds on top of the flow's built-in fields.
+  const [customFields, setCustomFields] = useState<BuilderField[]>([]);
+  const [editingField, setEditingField] = useState<BuilderField | null>(null);
+  const [fieldDialogOpen, setFieldDialogOpen] = useState(false);
+  const [fieldIsNew, setFieldIsNew] = useState(false);
+  const [describeText, setDescribeText] = useState('');
+  const [describing, setDescribing] = useState(false);
   // UTMs track the campaign names until the organiser edits one.
   const [utm, setUtm] = useState({ source: '', channel: '', campaign: '' });
   const [utmTouched, setUtmTouched] = useState(false);
@@ -170,6 +187,7 @@ export default function LandingPage() {
     // Slot forms never touch Momence classes.
     ...(isSlotForm ? [] : [{ id: 'booking', title: 'Class booking', hint: signupType === 'paid' ? 'Required for paid signups' : 'Optional auto-booking', done: signupType === 'paid' ? paidReady : Boolean(sessionId), optional: signupType !== 'paid', warn: signupType === 'paid' && !paidReady } as WizardStep & { hint: string }]),
     ...(isSlotForm ? [] : [{ id: 'slots', title: 'Time slots', hint: 'Let guests book a slot with its own cap', done: slotBooking.enabled && slotDrafts.length > 0, optional: !slotBooking.enabled, warn: slotBooking.enabled && slotDrafts.length === 0 } as WizardStep & { hint: string }]),
+    { id: 'fields', title: 'Extra questions', hint: 'Add your own fields on top of the standard ones', done: customFields.length > 0, optional: true },
     { id: 'hero', title: 'Hero image', hint: 'The image that leads the form', done: Boolean(heroImage), optional: true },
     { id: 'tracking', title: 'Limits & tracking', hint: 'Sign-up cap and UTM tags', done: Boolean(submissionLimit || utmTouched), optional: true },
   ];
@@ -201,6 +219,32 @@ export default function LandingPage() {
   };
   const goNext = () => { if (!blocker) goTo(safeIndex + 1); };
   const goBack = () => goTo(safeIndex - 1);
+
+  // Text to form: fills in the type, names and extra questions, then hands over to the wizard.
+  const handleDescribe = async () => {
+    const text = describeText.trim();
+    if (text.length < 8) { toast.error('Describe the form in a sentence or two.'); return; }
+    setDescribing(true);
+    try {
+      const draft = await describeForm({ description: text });
+      if (draft.signupType && ['free', 'paid', 'kids', 'slots'].includes(draft.signupType)) {
+        chooseSignupType(draft.signupType as SignupType);
+      }
+      if (draft.title && !eventTitle.trim()) setEventTitle(draft.title);
+      if (draft.fields.length) {
+        setCustomFields(draft.fields.map((field: any, index: number) => ({ ...field, id: `custom_${Date.now()}_${index}` })));
+      }
+      toast.success(
+        draft.fields.length ? `Added ${draft.fields.length} question${draft.fields.length === 1 ? '' : 's'}.` : 'No extra questions found in that description.',
+        { description: draft.engine === 'parser' ? draft.note : undefined },
+      );
+      setDescribeText('');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not read that description.');
+    } finally {
+      setDescribing(false);
+    }
+  };
 
   // Slot Bookings always books slots; every other flow leaves the toggle where it was.
   const chooseSignupType = (next: SignupType) => {
@@ -234,7 +278,7 @@ export default function LandingPage() {
           : 'Add at least one time slot, or switch time slots off.');
         return;
       }
-      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId, sessionStudio: sessionId ? sessionStudio : '', classFormats: effectiveFormats, submissionLimit: Number(submissionLimit) || 0, eventDate, eventTime, eventVenue: eventVenue.trim(), heroImage, utmSource: effectiveUtm.source, utmChannel: effectiveUtm.channel, utmCampaign: effectiveUtm.campaign, slotBooking: slotBooking.enabled || signupType === 'slots' ? slotBooking : undefined });
+      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId, sessionStudio: sessionId ? sessionStudio : '', classFormats: effectiveFormats, submissionLimit: Number(submissionLimit) || 0, eventDate, eventTime, eventVenue: eventVenue.trim(), heroImage, customFields, utmSource: effectiveUtm.source, utmChannel: effectiveUtm.channel, utmCampaign: effectiveUtm.campaign, slotBooking: slotBooking.enabled || signupType === 'slots' ? slotBooking : undefined });
       // Slots live in their own table, so they are written once the form exists.
       if (slotDrafts.length && (slotBooking.enabled || signupType === 'slots')) {
         try {
@@ -602,6 +646,12 @@ export default function LandingPage() {
 
         </div>
       </main>
+
+      <FieldEditorDialog field={editingField} open={fieldDialogOpen} onClose={() => setFieldDialogOpen(false)}
+        onSave={(field) => {
+          setCustomFields((current) => (fieldIsNew ? [...current, field] : current.map((item) => (item.id === field.id ? field : item))));
+          setFieldDialogOpen(false);
+        }} />
 
       {/* Footer */}
       <footer className="relative z-10 py-6" style={{ borderTop: '1px solid rgba(168,85,247,0.08)' }}>

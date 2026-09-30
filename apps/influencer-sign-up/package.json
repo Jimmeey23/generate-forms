@@ -138,7 +138,7 @@
     "intercom-client": "7.0.3",
     "jsforce": "3.10.14",
     "magic-string": "^0.30.17",
-    "openai": "6.29.0",
+    "openai": "^6.49.0",
     "postcss": "^8.5.3",
     "resend": "6.25.0",
     "slackify-markdown": "5.0.0",

@@ -73,7 +73,28 @@
     --shadow-2xl: calc(var(--shadow-x) * 8) calc(var(--shadow-y) * 8) calc(max(0px, var(--shadow-blur) * 9 - 8px)) calc(var(--shadow-spread) - 12px) color-mix(in srgb, var(--shadow-color) calc(var(--shadow-opacity) * 250%), transparent);
     --shadow: var(--shadow-md);
 
-    /* Form theme variables */
+    /* Form theme: light neumorphic by default; .form-dark is the opt-in inverse.
+       --form-accent is set per form, so each one reads as its own. */
+    --form-bg: 220 23% 94%;
+    --form-card: 220 23% 94%;
+    --form-surface: 220 23% 94%;
+    --form-surface-hover: 220 25% 96%;
+    --form-border: 220 18% 84%;
+    --form-card-border: 220 18% 84% / 0;
+    --form-border-active: 220 18% 70%;
+    --form-text: 222 30% 11%;
+    --form-text-secondary: 222 18% 30%;
+    --form-text-muted: 220 12% 45%;
+    --form-placeholder: 220 12% 52%;
+    --form-btn-bg: 222 30% 11%;
+    --form-btn-text: 0 0% 100%;
+    --form-dropdown-bg: 220 23% 96%;
+    --form-error: 0 72% 46%;
+    --form-neu-light: 0 0% 100%;
+    --form-neu-dark: 220 20% 72%;
+  }
+
+  .form-dark {
     --form-bg: 0 0% 4%;
     --form-card: 0 0% 7%;
     --form-surface: 0 0% 100% / 0.04;
@@ -89,26 +110,9 @@
     --form-btn-text: 0 0% 0%;
     --form-dropdown-bg: 0 0% 8%;
     --form-error: 0 72% 60%;
-  }
+    --form-neu-light: 0 0% 100% / 0.06;
+    --form-neu-dark: 0 0% 0% / 0.55;
 
-  .form-light {
-    --form-bg: 0 0% 96%;
-    --form-card: 0 0% 100%;
-    --form-surface: 0 0% 0% / 0.03;
-    --form-surface-hover: 0 0% 0% / 0.06;
-    --form-border: 0 0% 0% / 0.14;
-    --form-border-active: 0 0% 0% / 0.3;
-    /* No outline around the card in light mode: over the dark page it read as a white rim around the photo. */
-    --form-card-border: 0 0% 0% / 0;
-    /* Light mode keeps every label, value and placeholder in dark ink. */
-    --form-text: 0 0% 6%;
-    --form-text-secondary: 0 0% 14%;
-    --form-text-muted: 0 0% 30%;
-    --form-placeholder: 0 0% 38%;
-    --form-btn-bg: 0 0% 8%;
-    --form-btn-text: 0 0% 100%;
-    --form-dropdown-bg: 0 0% 100%;
-    --form-error: 0 72% 50%;
   }
 }
 
@@ -139,6 +143,17 @@
 .neu-pressable { transition: box-shadow 180ms ease, transform 180ms ease; }
 .neu-pressable:active { box-shadow: inset 4px 4px 9px hsl(var(--neu-dark) / 0.45), inset -4px -4px 9px hsl(var(--neu-light) / 0.9); }
 @media (prefers-reduced-motion: reduce) { .neu-pressable { transition: none; } }
+
+/* Guest-form neumorphism, driven by the --form-* tokens so it follows light/dark. */
+.form-neu-raised {
+  box-shadow: 6px 6px 14px hsl(var(--form-neu-dark) / 0.40), -6px -6px 14px hsl(var(--form-neu-light) / 0.9);
+}
+.form-neu-inset {
+  box-shadow: inset 4px 4px 9px hsl(var(--form-neu-dark) / 0.40), inset -4px -4px 9px hsl(var(--form-neu-light) / 0.9);
+}
+.form-neu-soft {
+  box-shadow: 3px 3px 8px hsl(var(--form-neu-dark) / 0.32), -3px -3px 8px hsl(var(--form-neu-light) / 0.85);
+}
 
 /* Form inputs take their placeholder colour from the active form theme. */
 .form-field::placeholder { color: hsl(var(--form-placeholder)); opacity: 1; }

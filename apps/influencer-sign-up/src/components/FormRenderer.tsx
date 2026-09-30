@@ -112,7 +112,7 @@ export default function FormRenderer({ form, preview, onSubmit, submitting }: {
 }) {
   const [values, setValues] = useState<Record<string, any>>(() => Object.fromEntries(form.fields.filter((field) => field.type === 'select' && field.options?.length === 1).map((field) => [field.id, field.options![0]])));
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(false);
   const [legalOpen, setLegalOpen] = useState<LegalKind | null>(null);
   // Legal documents follow the chosen studio's city; forms with child fields use the Juniors waiver.
   const legalContext = {
@@ -176,7 +176,7 @@ export default function FormRenderer({ form, preview, onSubmit, submitting }: {
     <ThemeCtx.Provider value={{ dark: isDark, toggle: () => setIsDark(d => !d) }}>
       <ValuesCtx.Provider value={values}>
         <LegalCtx.Provider value={setLegalOpen}>
-          <div className={isDark ? '' : 'form-light'} style={{ '--form-accent': form.accentColor || '#00f5a0' } as React.CSSProperties}>
+          <div className={isDark ? 'form-dark' : ''} style={{ '--form-accent': form.accentColor || '#00f5a0' } as React.CSSProperties}>
             {layoutEl}
             <LegalDialog kind={legalOpen} context={legalContext} dark={isDark} onClose={() => setLegalOpen(null)} />
           </div>
@@ -314,8 +314,8 @@ function SubmitBtn({ submitting }: { submitting?: boolean }) {
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}>
       <Button type="submit" disabled={submitting}
-        className="w-full gap-2.5 h-14 text-sm rounded-xl font-semibold tracking-[0.2em] uppercase transition-all duration-300 shadow-lg hover:shadow-xl"
-        style={{ background: 'var(--form-accent)', color: '#050505' }}>
+        className="w-full gap-2.5 h-14 text-sm rounded-xl font-semibold tracking-[0.2em] uppercase transition-shadow neu-pressable"
+        style={{ background: 'var(--form-accent)', color: '#ffffff' }}>
         {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
         {submitting ? 'Submitting...' : 'Sign Up Now'}
       </Button>
@@ -384,7 +384,8 @@ function StackedLayout({ form, theme, values, errors, setValue, onSubmit, submit
           </div>
         </div>
       ) : (
-        <div className={`bg-gradient-to-br ${theme.gradient} p-14 pt-28 text-white text-left relative`}>
+        <div className="p-14 pt-28 text-white text-left relative"
+          style={{ background: 'linear-gradient(135deg, var(--form-accent), color-mix(in srgb, var(--form-accent) 55%, #111))' }}>
           <AnimatedTitle text={form.title} className="text-3xl md:text-4xl font-bold" style={{ fontFamily: "'Playfair Display', serif" }} />
           {form.description && <motion.p initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7, duration: 0.6 }}
             className="mt-3 text-white/60 text-base max-w-lg tracking-wide">{form.description}</motion.p>}
@@ -414,7 +415,7 @@ function SplitLayout({ form, theme, values, errors, setValue, onSubmit, submitti
               <div className="absolute inset-0 bg-gradient-to-r from-black/30 via-black/40 to-black/70 hidden lg:block" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/40 to-black/10 lg:hidden" />
             </>
-          ) : <div className={`absolute inset-0 bg-gradient-to-br ${theme.gradient}`} />}
+          ) : <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, var(--form-accent), color-mix(in srgb, var(--form-accent) 55%, #111))' }} />}
           <div className="relative z-10 flex flex-col items-center justify-center h-full p-8 text-white text-center">
             <BrandLogo onDarkBg size={form.logoSize || 'lg'} position={form.logoPosition} invert={form.logoInvert} logoUrl={form.logoUrl} />
             <h1 className="text-2xl md:text-3xl font-bold mt-5 leading-tight" style={{ fontFamily: "'Playfair Display', serif" }}>{form.title}</h1>
@@ -445,7 +446,7 @@ function CinematicLayout({ form, theme, values, errors, setValue, onSubmit, subm
               initial={{ scale: Math.max(1.2, form.heroScale || 1) }} animate={{ scale: form.heroScale || 1 }} transition={{ duration: 2.5 }} />
             <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
           </>
-        ) : <div className={`absolute inset-0 bg-gradient-to-br ${theme.gradient}`} />}
+        ) : <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, var(--form-accent), color-mix(in srgb, var(--form-accent) 55%, #111))' }} />}
         <div className="absolute bottom-0 left-0 right-0 p-8 md:p-10 text-white">
           <BrandLogo onDarkBg size={form.logoSize || 'lg'} position={form.logoPosition} invert={form.logoInvert} logoUrl={form.logoUrl} />
           <h1 className="text-3xl md:text-5xl font-bold mt-4 tracking-tight" style={{ fontFamily: "'Playfair Display', serif" }}>{form.title}</h1>
@@ -500,7 +501,7 @@ function HeroOverlayLayout({ form, theme, values, errors, setValue, onSubmit, su
             initial={{ scale: Math.max(1.15, form.heroScale || 1) }} animate={{ scale: form.heroScale || 1 }} transition={{ duration: 2.5 }} />
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
         </>
-      ) : <div className={`absolute inset-0 bg-gradient-to-br ${theme.gradient}`} />}
+      ) : <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, var(--form-accent), color-mix(in srgb, var(--form-accent) 55%, #111))' }} />}
       <div className="relative z-10 flex flex-col items-center justify-center min-h-[700px] py-12 px-4">
         <BrandLogo onDarkBg size={form.logoSize || 'lg'} position={form.logoPosition} invert={form.logoInvert} logoUrl={form.logoUrl} />
         <h1 className="text-3xl md:text-4xl font-bold mt-5 text-white text-center tracking-tight" style={{ fontFamily: "'Playfair Display', serif" }}>{form.title}</h1>
@@ -508,7 +509,7 @@ function HeroOverlayLayout({ form, theme, values, errors, setValue, onSubmit, su
         <HashtagBadge tag={form.hashtag || ''} size={form.hashtagSize} badgeStyle={form.hashtagStyle} position={form.hashtagPosition} />
         <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
           className="mt-8 w-full" style={{ maxWidth: `${fw}px` }}>
-          <div className="backdrop-blur-xl rounded-2xl" style={{ background: 'hsl(var(--form-card) / 0.85)', border: '1px solid hsl(var(--form-border))' }}>
+          <div className="rounded-2xl form-neu-raised" style={{ background: 'hsl(var(--form-card))' }}>
             <FormSection form={form} onSubmit={onSubmit} values={values} errors={errors} setValue={setValue} submitting={submitting} />
           </div>
         </motion.div>
@@ -531,7 +532,7 @@ function CardFloatLayout({ form, theme, values, errors, setValue, onSubmit, subm
             initial={{ scale: Math.max(1.1, form.heroScale || 1) }} animate={{ scale: form.heroScale || 1 }} transition={{ duration: 2 }} />
           <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
         </>
-      ) : <div className={`absolute inset-0 bg-gradient-to-br ${theme.gradient}`} />}
+      ) : <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, var(--form-accent), color-mix(in srgb, var(--form-accent) 55%, #111))' }} />}
       <div className="relative z-10 flex flex-col lg:flex-row min-h-[700px]">
         <div className="flex-1 flex flex-col justify-center p-8 md:p-12 text-white">
           <BrandLogo onDarkBg size={form.logoSize || 'lg'} position="left" invert={form.logoInvert} logoUrl={form.logoUrl} />
@@ -541,7 +542,7 @@ function CardFloatLayout({ form, theme, values, errors, setValue, onSubmit, subm
         </div>
         <div className="lg:flex-none flex items-center justify-center p-6 lg:p-10" style={{ width: undefined }}>
           <motion.div initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3, duration: 0.6 }}
-            className="w-full shadow-2xl rounded-2xl" style={{ maxWidth: `${fw}px`, background: 'hsl(var(--form-card) / 0.92)', border: '1px solid hsl(var(--form-border))', backdropFilter: 'blur(20px)' }}>
+            className="w-full rounded-2xl form-neu-raised" style={{ maxWidth: `${fw}px`, background: 'hsl(var(--form-card))' }}>
             <FormSection form={form} onSubmit={onSubmit} values={values} errors={errors} setValue={setValue} submitting={submitting} />
           </motion.div>
         </div>
@@ -563,8 +564,8 @@ function CountryCodePicker({ value, onChange }: { value: string; onChange: (v: s
   return (
     <div ref={ref} className="relative">
       <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 h-11 px-3 rounded-l-lg text-sm shrink-0 transition-colors"
-        style={{ background: 'hsl(var(--form-surface))', border: '1px solid hsl(var(--form-border))' }}>
+        className="flex items-center gap-1.5 h-11 px-3 rounded-l-lg text-sm shrink-0 transition-shadow form-neu-inset"
+        style={{ background: 'hsl(var(--form-surface))' }}>
         <span className="text-lg leading-none">{selected.flag}</span>
         <span className="text-xs font-medium" style={{ color: 'hsl(var(--form-text-secondary))' }}>{selected.code}</span>
         <ChevronDown className="w-3 h-3" style={{ color: 'hsl(var(--form-text-muted))' }} />
@@ -607,8 +608,8 @@ function PhoneInput({ field, value, onChange, error }: { field: FormField; value
         <CountryCodePicker value={cc} onChange={(c) => { setCc(c); if (num) onChange(`${c} ${num}`); }} />
         <input type="tel" name={field.id} id={field.id} autoComplete={autoCompleteFor(field)} inputMode="tel" placeholder={field.placeholder || '98765 43210'} value={num}
           onChange={e => onChange(e.target.value ? `${cc} ${e.target.value}` : '')}
-          className="form-field h-11 flex-1 rounded-r-lg border-l-0 px-3 text-sm outline-none transition-colors"
-          style={{ background: 'hsl(var(--form-surface))', border: `1px solid hsl(var(--form-${error ? 'error' : 'border'}))`, borderLeft: 'none', color: 'hsl(var(--form-text))' }} />
+          className="form-field form-neu-inset h-11 flex-1 rounded-r-lg px-3 text-sm outline-none transition-shadow"
+          style={{ background: 'hsl(var(--form-surface))', border: error ? '1px solid hsl(var(--form-error))' : 'none', color: 'hsl(var(--form-text))' }} />
       </div>
       {field.helperText && <p className="text-[11px]" style={{ color: 'hsl(var(--form-text-muted))' }}>{field.helperText}</p>}
       {error && <p className="text-xs" style={{ color: 'hsl(var(--form-error))' }}>{error}</p>}
@@ -633,8 +634,9 @@ function ClassTypePicker({ field, value, onChange, error }: { field: FormField; 
           const sel = value === opt;
           return (
             <motion.button key={opt} type="button" whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
-              onClick={() => onChange(opt)} className="relative rounded-xl p-3.5 text-left transition-all overflow-hidden group"
-              style={{ background: sel ? 'hsl(var(--form-surface-hover))' : 'hsl(var(--form-surface))', border: `2px solid ${sel ? 'hsl(var(--form-text))' : 'hsl(var(--form-border))'}` }}>
+              onClick={() => onChange(opt)}
+              className={`relative rounded-xl p-3.5 text-left transition-shadow overflow-hidden group ${sel ? 'form-neu-inset' : 'form-neu-soft'}`}
+              style={{ background: 'hsl(var(--form-surface))', outline: sel ? '2px solid var(--form-accent)' : 'none', outlineOffset: '-2px' }}>
               {meta && <div className={`absolute inset-0 bg-gradient-to-br ${meta.accent} opacity-0 group-hover:opacity-100 transition-opacity ${sel ? 'opacity-100' : ''}`} />}
               <div className="relative z-10">
                 <Icon className="w-5 h-5 mb-2" style={{ color: sel ? 'hsl(var(--form-text))' : 'hsl(var(--form-text-secondary))' }} />
@@ -662,6 +664,43 @@ function FieldRenderer({ field, value, onChange, error, bold }: { field: FormFie
 
   const labelClass = `text-xs uppercase tracking-wider ${bold ? 'font-bold' : 'font-medium'}`;
 
+  // A read-only block is copy, not an input: it never carries a value.
+  if (field.type === 'readonly') {
+    return (
+      <div className="rounded-xl px-4 py-3 form-neu-soft" style={{ background: 'hsl(var(--form-surface))' }}>
+        {field.label && <p className="text-sm font-semibold" style={{ color: 'hsl(var(--form-text))' }}>{field.label}</p>}
+        {field.helperText && <p className="text-sm mt-1 leading-relaxed" style={{ color: 'hsl(var(--form-text-secondary))' }}>{field.helperText}</p>}
+      </div>
+    );
+  }
+
+  if (field.type === 'multiselect') {
+    const chosen: string[] = Array.isArray(value) ? value : [];
+    return (
+      <div className="space-y-2">
+        <Label className={labelClass} style={{ color: 'hsl(var(--form-text-secondary))' }}>
+          {field.label}{field.required && <span className="text-red-400 ml-0.5">*</span>}
+        </Label>
+        <div className="flex flex-wrap gap-2">
+          {field.options?.map((opt) => {
+            const on = chosen.includes(opt);
+            return (
+              <button key={opt} type="button"
+                onClick={() => onChange(on ? chosen.filter((item) => item !== opt) : [...chosen, opt])}
+                aria-pressed={on}
+                className={`rounded-lg px-3 py-2 text-sm transition-shadow ${on ? 'form-neu-inset' : 'form-neu-soft'}`}
+                style={{ background: 'hsl(var(--form-surface))', color: 'hsl(var(--form-text))', outline: on ? '2px solid var(--form-accent)' : 'none', outlineOffset: '-2px' }}>
+                {opt}
+              </button>
+            );
+          })}
+        </div>
+        {field.helperText && <p className="text-[11px]" style={{ color: 'hsl(var(--form-text-muted))' }}>{field.helperText}</p>}
+        {error && <p className="text-xs" style={{ color: 'hsl(var(--form-error))' }}>{error}</p>}
+      </div>
+    );
+  }
+
   if (field.type === 'signature') {
     return <div className="space-y-1.5"><Label className={labelClass} style={{ color: 'hsl(var(--form-text-secondary))' }}>{field.label}<span className="text-red-400 ml-0.5">*</span></Label><SignaturePad value={value} onChange={onChange} dark={dark} />{field.helperText && <p className="text-[11px]" style={{ color: 'hsl(var(--form-text-muted))' }}>{field.helperText}</p>}{error && <p className="text-xs" style={{ color: 'hsl(var(--form-error))' }}>{error}</p>}</div>;
   }
@@ -669,7 +708,7 @@ function FieldRenderer({ field, value, onChange, error, bold }: { field: FormFie
   if (field.type === 'terms') {
     return (
       <div className="space-y-1">
-        <div className="flex items-start gap-3 py-3 px-4 rounded-xl" style={{ background: 'hsl(var(--form-surface))', border: '1px solid hsl(var(--form-border))' }}>
+        <div className="flex items-start gap-3 py-3 px-4 rounded-xl form-neu-soft" style={{ background: 'hsl(var(--form-surface))' }}>
           <Checkbox id={field.id} checked={!!value} onCheckedChange={c => onChange(!!c)} className={FORM_CHECKBOX} />
           <Label htmlFor={field.id} className="text-sm font-normal leading-relaxed cursor-pointer" style={{ color: 'hsl(var(--form-text-secondary))' }}>
             {linkLegalPhrases(field.label, openLegal, dark)} <span className="text-red-400">*</span>
@@ -693,7 +732,7 @@ function FieldRenderer({ field, value, onChange, error, bold }: { field: FormFie
               {d ? format(d, 'PPP') : (field.placeholder || 'Pick a date')}
             </Button>
           </PopoverTrigger>
-          <PopoverContent className={`w-auto p-0 ${dark ? '' : 'form-light'}`} align="start" style={{ background: 'hsl(var(--form-dropdown-bg))', border: '1px solid hsl(var(--form-border))', color: 'hsl(var(--form-text))' }}>
+          <PopoverContent className={`w-auto p-0 ${dark ? 'form-dark' : ''}`} align="start" style={{ background: 'hsl(var(--form-dropdown-bg))', border: '1px solid hsl(var(--form-border))', color: 'hsl(var(--form-text))' }}>
             <Calendar mode="single" selected={d} onSelect={day => onChange(day ? day.toISOString().split('T')[0] : '')} />
           </PopoverContent>
         </Popover>
@@ -703,36 +742,38 @@ function FieldRenderer({ field, value, onChange, error, bold }: { field: FormFie
     );
   }
 
+  // Inputs sit pressed into the card; only an error draws a visible outline.
   const inputStyle = {
     background: 'hsl(var(--form-surface))',
-    border: `1px solid hsl(var(--form-${error ? 'error' : 'border'}))`,
+    border: error ? '1px solid hsl(var(--form-error))' : 'none',
     color: 'hsl(var(--form-text))',
   };
+  const inputClass = 'form-field form-neu-inset w-full rounded-lg text-sm outline-none transition-shadow';
 
   return (
     <div className="space-y-1.5">
       <Label htmlFor={field.id} className={labelClass} style={{ color: 'hsl(var(--form-text-secondary))' }}>
         {field.label}{field.required && <span className="text-red-400 ml-0.5">*</span>}
       </Label>
-      {(field.type === 'text' || field.type === 'email' || field.type === 'url' || field.type === 'number') ? (
-        <input type={field.type} name={field.id} id={field.id} autoComplete={autoCompleteFor(field)} placeholder={field.placeholder} value={value || ''} onChange={e => onChange(e.target.value)}
-          className="h-11 w-full rounded-lg px-3 text-sm outline-none transition-colors form-field" style={inputStyle} />
+      {(field.type === 'text' || field.type === 'email' || field.type === 'url' || field.type === 'number' || field.type === 'datetime') ? (
+        <input type={field.type === 'datetime' ? 'datetime-local' : field.type} name={field.id} id={field.id} autoComplete={autoCompleteFor(field)} placeholder={field.placeholder} value={value || ''} onChange={e => onChange(e.target.value)}
+          className={`${inputClass} h-11 px-3`} style={inputStyle} />
       ) : field.type === 'textarea' ? (
         <textarea name={field.id} id={field.id} autoComplete={autoCompleteFor(field)} placeholder={field.placeholder} value={value || ''} rows={3} onChange={e => onChange(e.target.value)}
-          className="w-full rounded-lg px-3 py-2 text-sm outline-none transition-colors resize-none form-field" style={inputStyle} />
+          className={`${inputClass} px-3 py-2 resize-none`} style={inputStyle} />
       ) : field.type === 'select' ? (
         <Select value={value || ''} onValueChange={onChange}>
           <SelectTrigger className="h-11 data-[placeholder]:text-[hsl(var(--form-placeholder))]" style={inputStyle}><SelectValue placeholder={field.placeholder || 'Select...'} /></SelectTrigger>
           {/* Menus render outside the themed wrapper, so they carry the theme class themselves. */}
-          <SelectContent className={dark ? '' : 'form-light'} style={{ background: 'hsl(var(--form-dropdown-bg))', border: '1px solid hsl(var(--form-border))', color: 'hsl(var(--form-text))' }}>
+          <SelectContent className={dark ? 'form-dark' : ''} style={{ background: 'hsl(var(--form-dropdown-bg))', border: '1px solid hsl(var(--form-border))', color: 'hsl(var(--form-text))' }}>
             {field.options?.map(opt => <SelectItem key={opt} value={opt} className="focus:bg-[hsl(var(--form-surface-hover))] focus:text-[hsl(var(--form-text))]">{opt}</SelectItem>)}
           </SelectContent>
         </Select>
       ) : field.type === 'radio' ? (
         <RadioGroup value={value || ''} onValueChange={onChange} className="space-y-1.5">
           {field.options?.map(opt => (
-            <div key={opt} className="flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors"
-              style={{ background: 'hsl(var(--form-surface))', border: '1px solid hsl(var(--form-border))' }}>
+            <div key={opt} className="flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-shadow form-neu-soft"
+              style={{ background: 'hsl(var(--form-surface))' }}>
               <RadioGroupItem value={opt} id={`${field.id}-${opt}`} />
               <Label htmlFor={`${field.id}-${opt}`} className="cursor-pointer font-normal flex-1 text-sm" style={{ color: 'hsl(var(--form-text-secondary))' }}>{opt}</Label>
             </div>
@@ -742,7 +783,7 @@ function FieldRenderer({ field, value, onChange, error, bold }: { field: FormFie
         <RatingInput value={value || 0} max={field.max || 5} onChange={onChange} />
       ) : (
         <input name={field.id} id={field.id} autoComplete={autoCompleteFor(field)} placeholder={field.placeholder} value={value || ''} onChange={e => onChange(e.target.value)}
-          className="h-11 w-full rounded-lg px-3 text-sm outline-none transition-colors form-field" style={inputStyle} />
+          className={`${inputClass} h-11 px-3`} style={inputStyle} />
       )}
       {field.helperText && <p className="text-[11px] leading-relaxed" style={{ color: 'hsl(var(--form-text-muted))' }}>{field.helperText}</p>}
       {error && <p className="text-xs" style={{ color: 'hsl(var(--form-error))' }}>{error}</p>}
