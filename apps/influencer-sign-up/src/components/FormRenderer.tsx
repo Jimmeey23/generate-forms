@@ -16,6 +16,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import SignaturePad from './SignaturePad';
 import LegalDialog, { linkLegalPhrases, type LegalKind } from './LegalDialog';
+import SlotPicker from './SlotPicker';
+import type { FormSlot, SlotBooking } from '@/lib/api';
 
 export type FormField = {
   id: string;
@@ -31,6 +33,10 @@ export type FormField = {
 };
 
 export type FormDataType = {
+  // Time-slot sign-ups are opt-in: without slotBooking.enabled the form renders exactly as before.
+  slotBooking?: SlotBooking;
+  slots?: FormSlot[];
+  slotsLoading?: boolean;
   title: string;
   description: string;
   themeColor: string;
@@ -138,6 +144,9 @@ export default function FormRenderer({ form, preview, onSubmit, submitting }: {
 
   const validate = () => {
     const errs: Record<string, string> = {};
+    if (form.slotBooking?.enabled && form.slotBooking.required !== false && !values.slotId) {
+      errs.slotId = 'Please choose a time slot';
+    }
     form.fields.forEach((f) => {
       if (f.required) {
         const v = values[f.id];
@@ -325,6 +334,20 @@ function FormSection({ form, onSubmit, values, errors, setValue, submitting, chi
   return (
     <form onSubmit={onSubmit} autoComplete="on" className="space-y-8" style={{ padding: `${pad}px`, borderRadius: `${br}px`, minHeight: form.formMinHeight ? `${form.formMinHeight}px` : undefined }}>
       <FieldsGrid fields={form.fields} values={values} errors={errors} setValue={setValue} bold={form.boldLabels} />
+      {form.slotBooking?.enabled && (
+        <SlotPicker
+          slots={form.slots || []}
+          value={String(values.slotId || '')}
+          onChange={(slotId) => setValue('slotId', slotId)}
+          heading={form.slotBooking.heading || 'Pick your time slot'}
+          helperText={form.slotBooking.helperText}
+          required={form.slotBooking.required !== false}
+          showRemaining={form.slotBooking.showRemaining !== false}
+          loading={form.slotsLoading}
+          error={errors.slotId}
+          bold={form.boldLabels}
+        />
+      )}
       <SubmitBtn submitting={submitting} />
       <Footer />
       {children}

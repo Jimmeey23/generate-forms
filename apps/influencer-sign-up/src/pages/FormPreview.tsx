@@ -11,13 +11,14 @@ import { Switch } from '@project/components/ui/switch';
 import {
   ArrowLeft, Share2, Copy, Check, ExternalLink, Pencil, Trash2,
   Plus, GripVertical, Settings2, Image as ImageIcon, Save, Layout, Hash, Type,
-  Palette, SlidersHorizontal, Sheet,
+  Palette, SlidersHorizontal, Sheet, Clock,
 } from 'lucide-react';
-import { createFormSheet, getForm, updateForm, GetFormOutputType } from '@/lib/api';
+import { createFormSheet, getForm, getFormSlots, saveFormSlots, updateForm, DEFAULT_SLOT_BOOKING, GetFormOutputType, type SlotBooking, type FormSlot } from '@/lib/api';
 import { toast } from 'sonner';
 import { HERO_IMAGES } from '@/lib/constants';
 import FormRenderer from '@/components/FormRenderer';
 import { FieldEditorDialog } from '@/components/FieldEditor';
+import { SlotBuilder, sortDrafts, type SlotDraft } from '@/components/SlotBuilder';
 
 type FormData = NonNullable<GetFormOutputType['form']>;
 type Field = { id: string; type: string; label: string; placeholder?: string; required?: boolean; helperText?: string; options?: string[]; gridCol?: string };
@@ -46,6 +47,18 @@ const LOGO_SIZES = [
 const POSITION_OPTIONS = [
   { value: 'left', label: 'Left' }, { value: 'center', label: 'Center' }, { value: 'right', label: 'Right' },
 ];
+
+const toDraft = (slot: FormSlot): SlotDraft => ({
+  key: slot.id, id: slot.id, date: slot.date, startTime: slot.startTime,
+  endTime: slot.endTime || '', label: slot.label, capacity: slot.capacity, bookedCount: slot.bookedCount,
+});
+
+// The live preview needs slot shapes, but unsaved drafts have no id yet.
+const draftToSlot = (slot: SlotDraft, index: number): FormSlot => ({
+  id: slot.id || slot.key, date: slot.date, startTime: slot.startTime, endTime: slot.endTime,
+  label: slot.label, capacity: slot.capacity, bookedCount: slot.bookedCount,
+  remaining: Math.max(slot.capacity - slot.bookedCount, 0), position: index,
+});
 
 export default function FormPreview() {
   const { id } = useParams();
@@ -90,6 +103,10 @@ export default function FormPreview() {
   const [editFormBorderRadius, setEditFormBorderRadius] = useState(16);
   const [editFormPadding, setEditFormPadding] = useState(40);
   const [editSubmissionLimit, setEditSubmissionLimit] = useState('');
+  // Time-slot sign-ups live in their own table, so they load and save separately from form_data.
+  const [editSlotBooking, setEditSlotBooking] = useState<SlotBooking>(DEFAULT_SLOT_BOOKING);
+  const [editSlots, setEditSlots] = useState<SlotDraft[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [editBoldLabels, setEditBoldLabels] = useState(false);
 
   // UTM
@@ -127,7 +144,13 @@ export default function FormPreview() {
       setEditUtmCampaign(f.utmCampaign);
       setEditFields(f.fields as Field[]);
       setEditSubmissionLimit(f.submissionLimit ? String(f.submissionLimit) : '');
+      setEditSlotBooking({ ...DEFAULT_SLOT_BOOKING, ...(f.slotBooking || {}) });
       setLoading(false);
+      setSlotsLoading(true);
+      getFormSlots({ formId: f.id })
+        .then(({ slots }) => setEditSlots(slots.map(toDraft)))
+        .catch(() => setEditSlots([]))
+        .finally(() => setSlotsLoading(false));
     });
   }, [id]);
 
@@ -154,9 +177,24 @@ export default function FormPreview() {
       formWidth: editFormWidth, formMinHeight: editFormMinHeight,
       formBorderRadius: editFormBorderRadius, formPadding: editFormPadding,
       boldLabels: editBoldLabels, submissionLimit: Number(editSubmissionLimit) || 0,
+      slotBooking: editSlotBooking,
     });
+    // Slots are their own resource; a failure here must not silently look like a successful save.
+    if (editSlotBooking.enabled) {
+      try {
+        const { slots } = await saveFormSlots({
+          formId: form.id,
+          slots: sortDrafts(editSlots).map((slot) => ({ date: slot.date, startTime: slot.startTime, endTime: slot.endTime || undefined, label: slot.label, capacity: slot.capacity })),
+        });
+        setEditSlots(slots.map(toDraft));
+      } catch (error) {
+        setSaving(false);
+        toast.error(error instanceof Error ? error.message : 'Form saved, but the time slots could not be saved.');
+        return;
+      }
+    }
     setForm({
-      ...form, submissionLimit: Number(editSubmissionLimit) || 0, title: editTitle, description: editDesc, themeColor: editTheme,
+      ...form, slotBooking: editSlotBooking, submissionLimit: Number(editSubmissionLimit) || 0, title: editTitle, description: editDesc, themeColor: editTheme,
       heroImage: editHero, layout: editLayout, fields: editFields,
       utmSource: editUtmSource, utmChannel: editUtmChannel, utmCampaign: editUtmCampaign,
     });
@@ -217,6 +255,7 @@ export default function FormPreview() {
         logoPosition: editLogoPosition, logoSize: editLogoSize, logoInvert: editLogoInvert,
         formWidth: editFormWidth, formMinHeight: editFormMinHeight,
         formBorderRadius: editFormBorderRadius, formPadding: editFormPadding, boldLabels: editBoldLabels,
+        slotBooking: editSlotBooking, slots: sortDrafts(editSlots).map(draftToSlot), slotsLoading,
       }
     : {
         title: form.title, description: form.description, themeColor: form.themeColor,
@@ -232,6 +271,7 @@ export default function FormPreview() {
         formWidth: (form as any).formWidth || 480, formMinHeight: (form as any).formMinHeight || 0,
         formBorderRadius: (form as any).formBorderRadius ?? 16, formPadding: (form as any).formPadding ?? 40,
         boldLabels: (form as any).boldLabels || false,
+        slotBooking: form.slotBooking, slots: sortDrafts(editSlots).map(draftToSlot), slotsLoading,
       };
 
   const showHeroWidth = editLayout === 'split';
@@ -429,6 +469,10 @@ export default function FormPreview() {
             </SidebarCard>
 
             {/* UTM */}
+            <SidebarCard title="Time Slots" icon={<Clock className="w-4 h-4" />}>
+              <SlotBuilder booking={editSlotBooking} onBookingChange={setEditSlotBooking} slots={editSlots} onSlotsChange={setEditSlots} />
+            </SidebarCard>
+
             <SidebarCard title="UTM Parameters" icon={<Settings2 className="w-4 h-4" />}>
               <div><Label className="text-xs text-muted-foreground">Source</Label><Input value={editUtmSource} onChange={(e) => setEditUtmSource(e.target.value)} placeholder="maia_sethna" className="h-8 text-sm" /></div>
               <div><Label className="text-xs text-muted-foreground">Channel</Label><Input value={editUtmChannel} onChange={(e) => setEditUtmChannel(e.target.value)} placeholder="partner_maia_sethna" className="h-8 text-sm" /></div>

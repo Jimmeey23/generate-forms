@@ -16,7 +16,7 @@ function googleAuth() {
 }
 export const sheetsConfigured = () => Boolean(googleAuth());
 
-const LEADING_COLUMNS = [{ id: '_submittedAt', label: 'Submitted At (IST)' }, { id: '_submissionId', label: 'Submission ID' }];
+const LEADING_COLUMNS = [{ id: '_submittedAt', label: 'Submitted At (IST)' }, { id: '_submissionId', label: 'Submission ID' }, { id: '_slot', label: 'Time Slot' }];
 const TRAILING_COLUMNS = [
   { id: '_momenceLead', label: 'Momence Lead' }, { id: '_momenceSignup', label: 'Momence Signup' },
   { id: '_utmSource', label: 'UTM Source' }, { id: '_utmCampaign', label: 'UTM Campaign' }, { id: '_utmChannel', label: 'UTM Channel' },

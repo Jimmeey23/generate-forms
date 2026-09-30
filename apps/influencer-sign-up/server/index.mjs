@@ -150,6 +150,44 @@ async function createUniqueSlug(label) {
   while (existing.has(`${base}-${suffix}`)) suffix += 1;
   return `${base}-${suffix}`;
 }
+// Slot sign-ups are opt-in per form; every other form keeps its existing behaviour.
+const SLOT_BOOKING_DEFAULTS = { enabled: false, required: true, heading: 'Pick your time slot', helperText: '', showRemaining: true, defaultCapacity: 6 };
+function normalizeSlotBooking(raw) {
+  const value = raw && typeof raw === 'object' ? raw : {};
+  return {
+    enabled: value.enabled === true,
+    required: value.required !== false,
+    heading: String(value.heading ?? SLOT_BOOKING_DEFAULTS.heading),
+    helperText: String(value.helperText ?? ''),
+    showRemaining: value.showRemaining !== false,
+    defaultCapacity: Math.max(1, Math.min(10000, Math.floor(Number(value.defaultCapacity) || SLOT_BOOKING_DEFAULTS.defaultCapacity))),
+  };
+}
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+// Times come back from Postgres as HH:MM:SS; the UI works in HH:MM.
+const trimTime = (value) => String(value || '').slice(0, 5);
+function publicSlot(record) {
+  const capacity = Number(record.capacity) || 0;
+  const booked = Number(record.booked_count) || 0;
+  return {
+    id: record.id, date: String(record.slot_date || ''), startTime: trimTime(record.start_time), endTime: trimTime(record.end_time),
+    label: record.label || '', capacity, bookedCount: booked, remaining: Math.max(capacity - booked, 0), position: Number(record.position) || 0,
+  };
+}
+function parseSlotInput(raw, index, defaultCapacity) {
+  const date = String(raw?.date || '').trim();
+  const startTime = trimTime(String(raw?.startTime || '').trim());
+  if (!YMD.test(date)) throw Object.assign(new Error(`Slot ${index + 1} needs a date in YYYY-MM-DD format.`), { status: 400 });
+  if (!HHMM.test(startTime)) throw Object.assign(new Error(`Slot ${index + 1} needs a start time in HH:MM format.`), { status: 400 });
+  const endRaw = trimTime(String(raw?.endTime || '').trim());
+  if (endRaw && !HHMM.test(endRaw)) throw Object.assign(new Error(`Slot ${index + 1} has an invalid end time.`), { status: 400 });
+  return {
+    date, startTime, endTime: endRaw || null, label: String(raw?.label || '').slice(0, 120),
+    capacity: Math.max(0, Math.min(10000, Math.floor(Number(raw?.capacity ?? defaultCapacity) || 0))), position: index,
+  };
+}
+
 function publicForm(record, req) {
   const data = record.form_data || {};
   const fields = normalizeFields(Array.isArray(data) ? data : data.fields, Array.isArray(data.targetStudios));
@@ -171,6 +209,7 @@ function publicForm(record, req) {
     targetStudios: data.targetStudios || (data.targetStudio ? [data.targetStudio] : []), sessionStudio: data.sessionStudio || data.targetStudio || '', classFormats: data.classFormats || (data.classFormat ? [data.classFormat] : []),
     eventDate: data.eventDate || '', eventTime: data.eventTime || '', eventVenue: data.eventVenue || '',
     submissionLimit: Number(data.submissionLimit) || 0,
+    slotBooking: normalizeSlotBooking(data.slotBooking),
     sheetUrl: data.sheetUrl || '',
   };
 }
@@ -277,6 +316,7 @@ app.patch('/api/forms/:id', asyncRoute(async (req, res) => {
   const dataKeys = ['fields', 'heroImage', 'heroPositionX', 'heroPositionY', 'heroHeight', 'heroWidth', 'layout', 'formWidth', 'formMinHeight', 'formBorderRadius', 'formPadding', 'boldLabels', 'utmSource', 'utmChannel', 'utmCampaign', 'hashtagSize', 'hashtagStyle', 'hashtagPosition', 'logoPosition', 'logoSize', 'logoInvert'];
   let changed = false;
   for (const key of dataKeys) if (req.body[key] !== undefined) { formData[key] = req.body[key]; changed = true; }
+  if (req.body.slotBooking !== undefined) { formData.slotBooking = normalizeSlotBooking(req.body.slotBooking); changed = true; }
   if (req.body.submissionLimit !== undefined) { formData.submissionLimit = Math.max(0, Math.min(100000, Math.floor(Number(req.body.submissionLimit) || 0))); changed = true; }
   if (changed) update.form_data = formData;
   const { error } = await supabase.from('forms').update(update).eq('id', req.params.id);
@@ -295,10 +335,75 @@ app.delete('/api/forms/:id', asyncRoute(async (req, res) => {
   if (error) throw error;
   res.json({ success: true });
 }));
+app.get('/api/forms/:id/slots', asyncRoute(async (req, res) => {
+  const { data, error } = await supabase.from('form_slots').select('*').eq('form_id', req.params.id)
+    .order('slot_date', { ascending: true }).order('start_time', { ascending: true });
+  if (error) throw error;
+  res.json({ slots: (data || []).map(publicSlot) });
+}));
+// Replaces a form's whole slot set. Slots that already exist (same date + start time) keep their
+// id and booked_count so live bookings survive an edit; slots dropped from the list are deleted.
+app.put('/api/forms/:id/slots', asyncRoute(async (req, res) => {
+  const { data: form, error: formError } = await supabase.from('forms').select('id, form_data').eq('id', req.params.id).single();
+  if (formError) throw formError;
+  const defaultCapacity = normalizeSlotBooking((form.form_data || {}).slotBooking).defaultCapacity;
+  const incoming = Array.isArray(req.body.slots) ? req.body.slots : [];
+  if (incoming.length > 500) return res.status(400).json({ error: 'A form can hold at most 500 slots.' });
+  let parsed;
+  try { parsed = incoming.map((slot, index) => parseSlotInput(slot, index, defaultCapacity)); }
+  catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+  const seen = new Set();
+  for (const slot of parsed) {
+    const key = `${slot.date} ${slot.startTime}`;
+    if (seen.has(key)) return res.status(400).json({ error: `Duplicate slot: ${key}. Each date and start time can appear only once.` });
+    seen.add(key);
+  }
+
+  const { data: existingRows, error: readError } = await supabase.from('form_slots').select('*').eq('form_id', req.params.id);
+  if (readError) throw readError;
+  const existing = new Map((existingRows || []).map((row) => [`${row.slot_date} ${trimTime(row.start_time)}`, row]));
+
+  const keep = [];
+  const inserts = [];
+  const updates = [];
+  for (const slot of parsed) {
+    const match = existing.get(`${slot.date} ${slot.startTime}`);
+    const row = { form_id: req.params.id, slot_date: slot.date, start_time: slot.startTime, end_time: slot.endTime, label: slot.label, capacity: slot.capacity, position: slot.position };
+    if (match) {
+      keep.push(match.id);
+      // Capacity may not be cut below the seats already taken.
+      const capacity = Math.max(slot.capacity, Number(match.booked_count) || 0);
+      updates.push({ id: match.id, patch: { end_time: slot.endTime, label: slot.label, capacity, position: slot.position } });
+    } else {
+      inserts.push(row);
+    }
+  }
+
+  const stale = (existingRows || []).filter((row) => !keep.includes(row.id));
+  const booked = stale.filter((row) => (Number(row.booked_count) || 0) > 0);
+  if (booked.length) return res.status(409).json({ error: `Cannot remove ${booked.length} slot(s) that already have sign-ups: ${booked.map((row) => `${row.slot_date} ${trimTime(row.start_time)}`).join(', ')}.` });
+  if (stale.length) {
+    const { error } = await supabase.from('form_slots').delete().in('id', stale.map((row) => row.id));
+    if (error) throw error;
+  }
+  for (const item of updates) {
+    const { error } = await supabase.from('form_slots').update(item.patch).eq('id', item.id);
+    if (error) throw error;
+  }
+  if (inserts.length) {
+    const { error } = await supabase.from('form_slots').insert(inserts);
+    if (error) throw error;
+  }
+
+  const { data: fresh, error: freshError } = await supabase.from('form_slots').select('*').eq('form_id', req.params.id)
+    .order('slot_date', { ascending: true }).order('start_time', { ascending: true });
+  if (freshError) throw freshError;
+  res.json({ slots: (fresh || []).map(publicSlot) });
+}));
 app.get('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   const { data, error } = await supabase.from('form_submissions').select('*').eq('form_id', req.params.id).order('submitted_at', { ascending: false }).limit(500);
   if (error) throw error;
-  res.json({ submissions: data.map((row) => ({ id: row.id, responses: row.response_data || {}, submitterEmail: row.submitter_email || '', submittedAt: row.submitted_at || '' })) });
+  res.json({ submissions: data.map((row) => ({ id: row.id, responses: row.response_data || {}, submitterEmail: row.submitter_email || '', slotLabel: row.slot_label || '', submittedAt: row.submitted_at || '' })) });
 }));
 
 const CENTER_CONFIG = {
@@ -371,8 +476,33 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
     if ((count || 0) >= submissionLimit) return res.status(409).json({ error: 'This form has reached its sign-up limit and is no longer accepting responses.', limitReached: true });
   }
   if (await isDuplicateSubmission(req.params.id, email, phone)) return res.status(409).json({ error: 'You have already signed up for this form with this email or phone number.', duplicate: true });
-  const { data: submission, error } = await supabase.from('form_submissions').insert({ form_id: req.params.id, response_data: responses, submitter_email: email, first_name: responses.firstName || '', last_name: responses.lastName || '', phone, center: rawCenter, class_type: responses.classType || '', utm_source: utmSource, utm_campaign: utmCampaign, utm_channel: utmChannel, utm_medium: attribution.utmMedium, utm_term: attribution.utmTerm, utm_content: attribution.utmContent, gclid: attribution.gclid, fbclid: attribution.fbclid, referrer: attribution.referrer, landing_page: attribution.landingPage, ab_variant: attribution.abVariant }).select('id').single();
-  if (error) throw error;
+
+  // Time-slot sign-ups. Only forms with slot booking switched on reach any of this.
+  const slotBooking = normalizeSlotBooking(formData.slotBooking);
+  let reservedSlotId = '';
+  let reservedSlotLabel = '';
+  if (slotBooking.enabled) {
+    const requestedSlotId = String(responses.slotId || '').trim();
+    if (!requestedSlotId) {
+      if (slotBooking.required) return res.status(400).json({ error: 'Please choose a time slot.' });
+    } else {
+      const { data: slot, error: slotError } = await supabase.from('form_slots').select('*').eq('id', requestedSlotId).eq('form_id', req.params.id).maybeSingle();
+      if (slotError) throw slotError;
+      if (!slot) return res.status(400).json({ error: 'That time slot is not available on this form.' });
+      const { data: reserved, error: reserveError } = await supabase.rpc('reserve_form_slot', { target_slot_id: slot.id, target_form_id: req.params.id });
+      if (reserveError) throw reserveError;
+      if (!reserved) return res.status(409).json({ error: 'Sorry, that time slot just filled up. Please choose another.', slotFull: true, slotId: slot.id });
+      reservedSlotId = slot.id;
+      reservedSlotLabel = slot.label || `${slot.slot_date} ${trimTime(slot.start_time)}`;
+      responses.slotLabel = reservedSlotLabel;
+    }
+  }
+  const { data: submission, error } = await supabase.from('form_submissions').insert({ form_id: req.params.id, slot_id: reservedSlotId || null, slot_label: reservedSlotLabel, response_data: responses, submitter_email: email, first_name: responses.firstName || '', last_name: responses.lastName || '', phone, center: rawCenter, class_type: responses.classType || '', utm_source: utmSource, utm_campaign: utmCampaign, utm_channel: utmChannel, utm_medium: attribution.utmMedium, utm_term: attribution.utmTerm, utm_content: attribution.utmContent, gclid: attribution.gclid, fbclid: attribution.fbclid, referrer: attribution.referrer, landing_page: attribution.landingPage, ab_variant: attribution.abVariant }).select('id').single();
+  if (error) {
+    // The seat was taken before the row was written; give it back rather than leaking capacity.
+    if (reservedSlotId) await supabase.rpc('release_form_slot', { target_slot_id: reservedSlotId }).catch(() => {});
+    throw error;
+  }
   const { error: countError } = await supabase.rpc('increment_form_submission_count', { target_form_id: req.params.id });
   if (countError) console.error('Submission saved, but count update failed:', countError.message);
   // Legacy single-studio forms have no sessionStudio; their class is at targetStudio.
@@ -408,7 +538,7 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   try {
     const sheetData = await ensureFormSheet(form);
     if (sheetData.sheetId) await appendSubmissionRow(sheetData, { responses, meta: {
-      _submittedAt: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }), _submissionId: submission.id, _momenceLead: webhookStatus,
+      _submittedAt: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }), _submissionId: submission.id, _slot: reservedSlotLabel, _momenceLead: webhookStatus,
       _momenceSignup: signupError ? `ERROR: ${String(signupError?.message || signupError).slice(0, 300)}` : (signup ? 'Created · awaiting class selection' : 'Not created'),
       _utmSource: utmSource, _utmCampaign: utmCampaign, _utmChannel: utmChannel, _utmMedium: attribution.utmMedium, _referrer: attribution.referrer,
     } });

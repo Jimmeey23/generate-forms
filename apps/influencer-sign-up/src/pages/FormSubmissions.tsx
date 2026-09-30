@@ -38,6 +38,8 @@ export default function FormSubmissions() {
     return (form.fields as any[]).map((f: any) => ({ id: f.id, label: f.label }));
   }, [form]);
 
+  const hasSlots = Boolean(form?.slotBooking?.enabled) || subs.some((s) => s.slotLabel);
+
   const columns = useMemo<ColumnDef<Sub>[]>(() => {
     const cols: ColumnDef<Sub>[] = [
       {
@@ -54,6 +56,10 @@ export default function FormSubmissions() {
         cell: ({ getValue }) => (getValue() as string) || '-',
       },
     ];
+    // Only slot forms record a slot, so the column stays out of everyone else's table.
+    if (hasSlots) {
+      cols.push({ accessorKey: 'slotLabel', header: 'Time Slot', cell: ({ getValue }) => (getValue() as string) || '-' });
+    }
     fieldLabels.forEach(({ id, label }) => {
       cols.push({
         id,
@@ -66,7 +72,7 @@ export default function FormSubmissions() {
       });
     });
     return cols;
-  }, [fieldLabels]);
+  }, [fieldLabels, hasSlots]);
 
   const table = useReactTable({
     data: subs,
@@ -80,10 +86,11 @@ export default function FormSubmissions() {
 
   const exportCsv = () => {
     if (!form) return;
-    const headers = ['Submitted', 'Email', ...fieldLabels.map(f => f.label)];
+    const headers = ['Submitted', 'Email', ...(hasSlots ? ['Time Slot'] : []), ...fieldLabels.map(f => f.label)];
     const rows = subs.map(s => [
       s.submittedAt ? format(new Date(s.submittedAt), 'yyyy-MM-dd HH:mm') : '',
       s.submitterEmail,
+      ...(hasSlots ? [s.slotLabel || ''] : []),
       ...fieldLabels.map(f => {
         const v = s.responses[f.id];
         return Array.isArray(v) ? v.join('; ') : v?.toString() || '';

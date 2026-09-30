@@ -12,8 +12,15 @@ export type FormRecord = {
   signupType: 'kids' | 'free' | 'paid'; targetStudio: string; sessionId: string; classFormat: string;
   targetStudios: string[]; classFormats: string[]; sessionStudio: string; eventDate: string; eventTime: string; eventVenue: string;
   sheetUrl: string; submissionLimit: number;
+  slotBooking: SlotBooking;
 };
-export type SubmissionRecord = { id: string; responses: Record<string, any>; submitterEmail: string; submittedAt: string };
+
+// Time-slot sign-ups: off unless a form explicitly switches them on.
+export type SlotBooking = { enabled: boolean; required: boolean; heading: string; helperText: string; showRemaining: boolean; defaultCapacity: number };
+export type FormSlot = { id: string; date: string; startTime: string; endTime: string; label: string; capacity: number; bookedCount: number; remaining: number; position: number };
+export type SlotInput = { date: string; startTime: string; endTime?: string; label?: string; capacity: number };
+export const DEFAULT_SLOT_BOOKING: SlotBooking = { enabled: false, required: true, heading: 'Pick your time slot', helperText: '', showRemaining: true, defaultCapacity: 6 };
+export type SubmissionRecord = { id: string; responses: Record<string, any>; submitterEmail: string; slotLabel: string; submittedAt: string };
 export type GetFormOutputType = { form: FormRecord | null };
 export type GetFormsOutputType = { forms: FormRecord[] };
 export type GetSubmissionsOutputType = { submissions: SubmissionRecord[] };
@@ -41,6 +48,8 @@ export const submitForm = (input: { formId: string; responses: Record<string, an
   const { formId, ...body } = input;
   return request<{ success: boolean; submissionId: string; webhookStatus: string; checkoutUrl?: string | null; signup?: { memberId: number; booked?: boolean; sessionId?: string } | null; signupStatus?: 'OK' | 'MOMENCE_FAILED'; signupError?: string }>(`/api/forms/${encodeURIComponent(formId)}/submissions`, { method: 'POST', body: JSON.stringify(body) });
 };
+export const getFormSlots = (input: { formId: string }) => request<{ slots: FormSlot[] }>(`/api/forms/${encodeURIComponent(input.formId)}/slots`);
+export const saveFormSlots = (input: { formId: string; slots: SlotInput[] }) => request<{ slots: FormSlot[] }>(`/api/forms/${encodeURIComponent(input.formId)}/slots`, { method: 'PUT', body: JSON.stringify({ slots: input.slots }) });
 export const confirmPayment = (checkoutSessionId: string) => request<{ success: boolean; booking: { memberId: number; sessionId: number } }>(`/api/payments/confirm?checkout_session_id=${encodeURIComponent(checkoutSessionId)}`);
 export type MomenceSession = { id: number; name: string; startsAt: string; endsAt: string; durationInMinutes: number; capacity: number | null; bookingCount: number; spotsLeft: number | null; teacherName: string; locationName: string; hosted: boolean };
 export const getMomenceSessions = (input: { center: string; classType: string }) => request<{ sessions: MomenceSession[] }>(`/api/momence/sessions?center=${encodeURIComponent(input.center)}&classType=${encodeURIComponent(input.classType)}`);

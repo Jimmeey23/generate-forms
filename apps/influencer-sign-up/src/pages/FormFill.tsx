@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Skeleton } from '@project/components/ui/skeleton';
-import { getForm, submitForm, GetFormOutputType } from '@/lib/api';
+import { getForm, getFormSlots, submitForm, GetFormOutputType, type FormSlot } from '@/lib/api';
 import { toast } from 'sonner';
 import FormRenderer from '@/components/FormRenderer';
 import FormExtras from '@/components/FormExtras';
@@ -27,6 +27,8 @@ export default function FormFill() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [slots, setSlots] = useState<FormSlot[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
 
   useEffect(() => {
     return () => resetMetaTags();
@@ -48,6 +50,13 @@ export default function FormFill() {
           });
         }
         setLoading(false);
+        if (form?.slotBooking?.enabled) {
+          setSlotsLoading(true);
+          getFormSlots({ formId: form.id })
+            .then(({ slots }) => setSlots(slots))
+            .catch(() => setSlots([]))
+            .finally(() => setSlotsLoading(false));
+        }
       })
       .catch(() => {
         setError(true);
@@ -94,6 +103,8 @@ export default function FormFill() {
       navigate('/success');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to submit. Please try again.');
+      // Someone may have taken the seat first; pull fresh counts so the grid is honest.
+      if (form.slotBooking?.enabled) getFormSlots({ formId: form.id }).then(({ slots }) => setSlots(slots)).catch(() => {});
     } finally {
       setSubmitting(false);
     }
@@ -167,6 +178,9 @@ export default function FormFill() {
             formBorderRadius: form.formBorderRadius ?? 16,
             formPadding: form.formPadding ?? 40,
             boldLabels: form.boldLabels || false,
+            slotBooking: form.slotBooking,
+            slots,
+            slotsLoading,
           }}
           onSubmit={handleSubmit}
           submitting={submitting}
