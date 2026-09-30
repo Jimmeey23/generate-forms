@@ -3,22 +3,23 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@project/components/ui/button';
 import { Input } from '@project/components/ui/input';
 import { Label } from '@project/components/ui/label';
-import { Loader2, ArrowRight, Sparkles, Zap, Share2, BarChart3, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle, Image as ImageIcon, Tag } from 'lucide-react';
+import { Loader2, ArrowRight, Sparkles, Zap, Share2, BarChart3, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle, Image as ImageIcon, Tag, CalendarClock } from 'lucide-react';
 import { generateForm, getMomenceSessions, saveFormSlots, DEFAULT_SLOT_BOOKING, type MomenceSession, type SlotBooking } from '@/lib/api';
 import SlotWizard from '@/components/SlotWizard';
 import BuilderRail, { type RailSection } from '@/components/BuilderRail';
 import HeroPicker from '@/components/HeroPicker';
 import { sortDrafts, toSlotInput, type SlotDraft } from '@/lib/slots';
 import { toast } from 'sonner';
-import { BRAND_LOGO_DARK, HERO_IMAGES } from '@/lib/constants';
+import { BRAND_LOGO, HERO_IMAGES } from '@/lib/constants';
 import { motion, AnimatePresence, MotionConfig, type Variants } from 'framer-motion';
 
-type SignupType = 'kids' | 'free' | 'paid';
+import type { SignupType } from '@/lib/api';
 
 const SIGNUP_FLOWS: { value: SignupType; label: string; desc: string; icon: React.ElementType }[] = [
   { value: 'free', label: 'Free signup', desc: 'Complimentary first class', icon: Gift },
   { value: 'paid', label: 'Paid signup', desc: 'Checkout, then auto-book', icon: CreditCard },
   { value: 'kids', label: 'Kids / Juniors', desc: 'Parent-signed waiver', icon: Baby },
+  { value: 'slots', label: 'Slot Bookings', desc: 'Book a time slot, no class', icon: CalendarClock },
 ];
 
 const STUDIOS_BY_CITY: { city: string; studios: string[] }[] = [
@@ -60,7 +61,7 @@ const UTM_FIELDS = [
   { key: 'campaign' as const, label: 'Campaign', placeholder: 'open_house' },
 ];
 
-const fieldClass = 'h-11 bg-muted/30 border-border/50 focus:border-purple-500/40 transition-colors text-sm';
+const fieldClass = 'h-11 neu-inset border-0 focus-visible:ring-2 focus-visible:ring-primary/40 transition-shadow text-sm';
 const labelClass = 'text-[11px] uppercase tracking-wider mb-2 block font-bold text-muted-foreground';
 
 export default function LandingPage() {
@@ -152,19 +153,22 @@ export default function LandingPage() {
   const studioSummary = studios.length === ALL_STUDIOS.length ? 'All studios' : studios.length === 1 ? studios[0] : `${studios.length} studios`;
   const flow = SIGNUP_FLOWS.find((option) => option.value === signupType)!;
   const paidReady = signupType !== 'paid' || /^\d+$/.test(sessionId);
-  const slotsReady = !slotBooking.enabled || slotDrafts.length > 0;
+  const slotsReady = (!slotBooking.enabled && signupType !== 'slots') || slotDrafts.length > 0;
   const canGenerate = Boolean(influencer.trim() || eventTitle.trim()) && studios.length > 0 && paidReady && slotsReady;
 
   // One source of truth for the rail and the page body, so the two can never disagree.
   const isKids = signupType === 'kids';
+  const isSlotForm = signupType === 'slots';
   const sectionMeta: (RailSection & { hint: string })[] = [
     { id: 'type', phase: 'Campaign', title: 'Form type', hint: 'What happens after someone signs up', done: true },
     { id: 'campaign', phase: 'Campaign', title: 'Partner & event', hint: 'Whose name is on this form', done: Boolean(influencer.trim() || eventTitle.trim()) },
+    // A slot form's schedule is its subject, so it leads the Experience phase.
+    ...(isSlotForm ? [{ id: 'slots', phase: 'Experience', title: 'Time slots', hint: 'The schedule guests book from', done: slotDrafts.length > 0, warn: slotDrafts.length === 0 } as RailSection & { hint: string }] : []),
     { id: 'studios', phase: 'Experience', title: 'Studios', hint: 'Where guests can go', done: studios.length > 0 },
-    ...(isKids ? [] : [{ id: 'formats', phase: 'Experience', title: 'Class formats', hint: 'Shapes the copy, images and class list', done: effectiveFormats.length > 0, optional: true } as RailSection & { hint: string }]),
-    // Only paid forms must pin a class, so for every other flow this is an optional extra.
-    { id: 'booking', phase: 'Experience', title: 'Class booking', hint: signupType === 'paid' ? 'Required for paid signups' : 'Optional auto-booking', done: signupType === 'paid' ? paidReady : Boolean(sessionId), optional: signupType !== 'paid', warn: signupType === 'paid' && !paidReady },
-    { id: 'slots', phase: 'Experience', title: 'Time slots', hint: 'Let guests book a slot with its own cap', done: slotBooking.enabled && slotDrafts.length > 0, optional: !slotBooking.enabled, warn: slotBooking.enabled && slotDrafts.length === 0 },
+    ...(isKids || isSlotForm ? [] : [{ id: 'formats', phase: 'Experience', title: 'Class formats', hint: 'Shapes the copy, images and class list', done: effectiveFormats.length > 0, optional: true } as RailSection & { hint: string }]),
+    // Slot forms never touch Momence classes.
+    ...(isSlotForm ? [] : [{ id: 'booking', phase: 'Experience', title: 'Class booking', hint: signupType === 'paid' ? 'Required for paid signups' : 'Optional auto-booking', done: signupType === 'paid' ? paidReady : Boolean(sessionId), optional: signupType !== 'paid', warn: signupType === 'paid' && !paidReady } as RailSection & { hint: string }]),
+    ...(isSlotForm ? [] : [{ id: 'slots', phase: 'Experience', title: 'Time slots', hint: 'Let guests book a slot with its own cap', done: slotBooking.enabled && slotDrafts.length > 0, optional: !slotBooking.enabled, warn: slotBooking.enabled && slotDrafts.length === 0 } as RailSection & { hint: string }]),
     { id: 'hero', phase: 'Appearance & tracking', title: 'Hero image', hint: 'The image that leads the form', done: Boolean(heroImage), optional: true },
     { id: 'tracking', phase: 'Appearance & tracking', title: 'Limits & tracking', hint: 'Sign-up cap and UTM tags', done: Boolean(submissionLimit || utmTouched), optional: true },
   ];
@@ -188,6 +192,16 @@ export default function LandingPage() {
     return () => observer.disconnect();
   }, [sectionIds]);
 
+  // Slot Bookings always books slots; every other flow leaves the toggle where it was.
+  const chooseSignupType = (next: SignupType) => {
+    setSignupType(next);
+    if (next === 'slots') {
+      setSlotBooking((current) => ({ ...current, enabled: true }));
+      setSelectedKey('');
+      setFormats([]);
+    }
+  };
+
   const jumpTo = (id: string) => {
     document.getElementById(`section-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
@@ -204,13 +218,15 @@ export default function LandingPage() {
         toast.error('Paid signups need a Momence class');
         return;
       }
-      if (slotBooking.enabled && !slotDrafts.length) {
-        toast.error('Add at least one time slot, or switch time slots off.');
+      if (!slotsReady) {
+        toast.error(signupType === 'slots'
+          ? 'A Slot Bookings form needs at least one time slot.'
+          : 'Add at least one time slot, or switch time slots off.');
         return;
       }
-      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId, sessionStudio: sessionId ? sessionStudio : '', classFormats: effectiveFormats, submissionLimit: Number(submissionLimit) || 0, eventDate, eventTime, eventVenue: eventVenue.trim(), heroImage, utmSource: effectiveUtm.source, utmChannel: effectiveUtm.channel, utmCampaign: effectiveUtm.campaign, slotBooking: slotBooking.enabled ? slotBooking : undefined });
+      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId, sessionStudio: sessionId ? sessionStudio : '', classFormats: effectiveFormats, submissionLimit: Number(submissionLimit) || 0, eventDate, eventTime, eventVenue: eventVenue.trim(), heroImage, utmSource: effectiveUtm.source, utmChannel: effectiveUtm.channel, utmCampaign: effectiveUtm.campaign, slotBooking: slotBooking.enabled || signupType === 'slots' ? slotBooking : undefined });
       // Slots live in their own table, so they are written once the form exists.
-      if (slotBooking.enabled && slotDrafts.length) {
+      if (slotDrafts.length && (slotBooking.enabled || signupType === 'slots')) {
         try {
           await saveFormSlots({ formId: form.id, slots: sortDrafts(slotDrafts).map(toSlotInput) });
         } catch (error) {
@@ -233,27 +249,27 @@ export default function LandingPage() {
     <div className="min-h-screen bg-background relative overflow-hidden">
       {/* Drifting ambient glow */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <motion.div className="absolute -top-60 right-[-10%] w-[700px] h-[700px] rounded-full opacity-[0.07]"
+        <motion.div className="absolute -top-60 right-[-10%] w-[700px] h-[700px] rounded-full opacity-[0.10]"
           style={{ background: 'radial-gradient(circle, #a855f7 0%, transparent 70%)' }}
           animate={{ x: [0, -60, 0], y: [0, 40, 0] }} transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut' }} />
-        <motion.div className="absolute bottom-[-15%] left-[-10%] w-[600px] h-[600px] rounded-full opacity-[0.06]"
+        <motion.div className="absolute bottom-[-15%] left-[-10%] w-[600px] h-[600px] rounded-full opacity-[0.09]"
           style={{ background: 'radial-gradient(circle, #06b6d4 0%, transparent 70%)' }}
           animate={{ x: [0, 70, 0], y: [0, -30, 0] }} transition={{ duration: 22, repeat: Infinity, ease: 'easeInOut' }} />
-        <motion.div className="absolute top-[40%] left-[45%] w-[420px] h-[420px] rounded-full opacity-[0.04]"
+        <motion.div className="absolute top-[40%] left-[45%] w-[420px] h-[420px] rounded-full opacity-[0.07]"
           style={{ background: 'radial-gradient(circle, #f97316 0%, transparent 70%)' }}
           animate={{ x: [0, -40, 30, 0], y: [0, 30, -20, 0] }} transition={{ duration: 26, repeat: Infinity, ease: 'easeInOut' }} />
       </div>
 
       {/* Nav */}
-      <nav className="relative z-50 border-b border-border/30 bg-background/80 backdrop-blur-md">
+      <nav className="relative z-50 border-b border-border bg-background/80 backdrop-blur-md">
         <div className="container mx-auto h-16 flex items-center justify-between px-4">
           <motion.div className="flex items-center gap-3" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}>
-            <img src={BRAND_LOGO_DARK} alt="Physique 57" className="h-10 w-auto" />
+            <img src={BRAND_LOGO} alt="Physique 57" className="h-10 w-auto" />
             <div className="h-5 w-px bg-border/50" />
             <span className="text-xs font-medium tracking-wider uppercase text-muted-foreground">Lead Capture</span>
           </motion.div>
           <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1, duration: 0.6, ease: EASE }}>
-          <Button variant="outline" onClick={() => navigate('/dashboard')} className="text-sm gap-2 border-border/50 hover:border-primary/40 font-semibold text-[#03c4ff] shadow-none">
+          <Button variant="outline" onClick={() => navigate('/dashboard')} className="text-sm gap-2 font-semibold neu-raised-sm neu-pressable border-0">
             <BarChart3 className="w-3.5 h-3.5" /> My Forms
           </Button>
           </motion.div>
@@ -267,7 +283,7 @@ export default function LandingPage() {
             className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 mb-8 md:mb-10">
             <div>
               <motion.div variants={rise} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-4 text-[11px] font-medium tracking-wider uppercase"
-                style={{ background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.15)', color: 'rgba(168,85,247,0.9)' }}>
+                style={{ background: 'hsl(var(--primary) / 0.1)', border: '1px solid hsl(var(--primary) / 0.2)', color: 'hsl(var(--primary))' }}>
                 <motion.span animate={{ rotate: [0, 18, -8, 0] }} transition={{ duration: 2.4, repeat: Infinity, repeatDelay: 2 }}><Sparkles className="w-3 h-3" /></motion.span> Instant AI Generation
               </motion.div>
               <motion.h1 variants={stagger} className="text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight leading-[1.1]" style={{ fontFamily: "'Playfair Display', serif" }}>
@@ -290,14 +306,14 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
             {/* Section index */}
             <div className="hidden lg:block lg:col-span-2">
-              <div className="sticky top-6 rounded-2xl bg-card/50 border border-border/40 p-4">
+              <div className="sticky top-6 rounded-2xl neu-raised p-4">
                 <BuilderRail sections={sectionMeta} activeId={activeSection} onJump={jumpTo} />
               </div>
             </div>
 
             {/* Form builder */}
             <motion.section initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.6, ease: EASE }}
-              className="lg:col-span-6 rounded-2xl bg-card/70 border border-border/40 overflow-hidden">
+              className="lg:col-span-6 rounded-2xl neu-raised overflow-hidden">
               <motion.div className="h-1 bg-[length:200%_100%]" style={{ backgroundImage: 'linear-gradient(90deg, #a855f7, #06b6d4, #f97316, #a855f7)' }}
                 animate={{ backgroundPosition: ['0% 0%', '200% 0%'] }} transition={{ duration: 8, repeat: Infinity, ease: 'linear' }} />
               <div className="p-5 md:p-7 space-y-9">
@@ -310,9 +326,9 @@ export default function LandingPage() {
                         : undefined}>
                     {meta.id === 'type' && (
                       <>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3" role="radiogroup" aria-label="Signup flow">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" role="radiogroup" aria-label="Signup flow">
                           {SIGNUP_FLOWS.map((option) => (
-                            <OptionTile key={option.value} group="flow" selected={signupType === option.value} onSelect={() => setSignupType(option.value)}>
+                            <OptionTile key={option.value} group="flow" selected={signupType === option.value} onSelect={() => chooseSignupType(option.value)}>
                               <option.icon className="w-4 h-4 mb-3" style={{ color: signupType === option.value ? '#a855f7' : undefined }} />
                               <span className="block text-sm font-semibold">{option.label}</span>
                               <span className="block text-xs text-muted-foreground mt-0.5">{option.desc}</span>
@@ -335,11 +351,11 @@ export default function LandingPage() {
                           <div className="grid grid-cols-2 gap-4">
                             <div>
                               <Label htmlFor="event-date" className={labelClass}>Event date</Label>
-                              <Input id="event-date" type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className={`${fieldClass} [color-scheme:dark]`} />
+                              <Input id="event-date" type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className={`${fieldClass}`} />
                             </div>
                             <div>
                               <Label htmlFor="event-time" className={labelClass}>Start time</Label>
-                              <Input id="event-time" type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} className={`${fieldClass} [color-scheme:dark]`} />
+                              <Input id="event-time" type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} className={`${fieldClass}`} />
                             </div>
                           </div>
                           <div>
@@ -410,7 +426,7 @@ export default function LandingPage() {
                                   placeholder="Couldn't load classes · enter session ID" className={fieldClass} />
                                 {studios.length > 1 && (
                                   <select aria-label="Studio for this class" value={sessionStudio} onChange={(e) => setManualStudio(e.target.value)}
-                                    className={`${fieldClass} w-40 shrink-0 rounded-md border px-2 [color-scheme:dark]`}>
+                                    className={`${fieldClass} w-40 shrink-0 rounded-md border px-2`}>
                                     {studios.map((studio) => <option key={studio} value={studio}>{shortStudio(studio)}</option>)}
                                   </select>
                                 )}
@@ -418,7 +434,7 @@ export default function LandingPage() {
                             ) : (
                               <div className="relative">
                                 <select id="momence-class" value={selectedKey} onChange={(e) => chooseSession(e.target.value)} disabled={sessionsState === 'loading'}
-                                  className={`${fieldClass} w-full rounded-md border px-3 pr-9 appearance-none [color-scheme:dark] disabled:opacity-60`}>
+                                  className={`${fieldClass} w-full rounded-md border px-3 pr-9 appearance-none disabled:opacity-60`}>
                                   <option value="">{sessionsState === 'loading' ? 'Loading classes from Momence…' : sessions.length ? (signupType === 'paid' ? 'Select a class' : 'No pre-booking · guest picks later') : 'No upcoming classes found'}</option>
                                   {Object.entries(sessionsByDay).map(([day, items]) => (
                                     <optgroup key={day} label={day}>
@@ -451,7 +467,7 @@ export default function LandingPage() {
                     {meta.id === 'slots' && (
                       <>
                         <SlotWizard booking={slotBooking} onBookingChange={setSlotBooking} slots={slotDrafts} onSlotsChange={setSlotDrafts}
-                          fieldClass={fieldClass} labelClass={labelClass} defaultDate={eventDate} />
+                          fieldClass={fieldClass} labelClass={labelClass} defaultDate={eventDate} alwaysOn={isSlotForm} />
                       </>
                     )}
                     {meta.id === 'hero' && (
@@ -480,7 +496,7 @@ export default function LandingPage() {
                             </span>
                             {utmTouched && (
                               <button type="button" onClick={() => { setUtmTouched(false); setUtm({ source: '', channel: '', campaign: '' }); }}
-                                className="text-[11px] font-semibold uppercase tracking-wider text-purple-400 hover:text-purple-300 transition-colors">
+                                className="text-[11px] font-semibold uppercase tracking-wider text-primary hover:opacity-70 transition-opacity">
                                 Back to automatic
                               </button>
                             )}
@@ -511,7 +527,7 @@ export default function LandingPage() {
             {/* Summary + preview */}
             <motion.aside initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.6, ease: EASE }}
               className="lg:col-span-4 space-y-5 lg:sticky lg:top-6 self-start">
-              <div className="rounded-2xl bg-card/70 border border-border/40 p-5 md:p-6">
+              <div className="rounded-2xl neu-raised p-5 md:p-6">
                 <div className="flex items-center gap-2 mb-5">
                   <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#22c55e', boxShadow: '0 0 8px rgba(34,197,94,0.5)' }} />
                   <span className="text-xs text-muted-foreground font-medium tracking-wide uppercase">New Form</span>
@@ -531,8 +547,8 @@ export default function LandingPage() {
                 </dl>
                 <motion.div whileHover={canGenerate ? { scale: 1.02 } : undefined} whileTap={canGenerate ? { scale: 0.98 } : undefined}>
                   <Button onClick={handleGenerate} disabled={loading || !canGenerate}
-                    className="relative w-full h-12 gap-2 rounded-xl text-sm tracking-wider uppercase font-extrabold text-[#ffffff] shadow-lg hover:shadow-xl transition-shadow overflow-hidden"
-                    size="lg" style={{ background: 'linear-gradient(135deg, #a855f7, #7c3aed)', border: 'none' }}>
+                    className="relative w-full h-12 gap-2 rounded-xl text-sm tracking-wider uppercase font-extrabold text-white neu-pressable overflow-hidden disabled:opacity-50"
+                    size="lg" style={{ background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)', border: 'none' }}>
                     {canGenerate && !loading && (
                       <motion.span aria-hidden className="absolute inset-y-0 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/25 to-transparent"
                         initial={{ left: '-40%' }} animate={{ left: '140%' }} transition={{ duration: 1.6, repeat: Infinity, repeatDelay: 1.2, ease: 'easeInOut' }} />
@@ -546,7 +562,7 @@ export default function LandingPage() {
                   Powered by AI · Instant generation
                 </p>
               </div>
-              <div className="rounded-2xl bg-card/70 border border-border/40 p-5">
+              <div className="rounded-2xl neu-raised p-5">
                 {heroImage ? (
                   <div>
                     <div className="flex items-center justify-between mb-3">
@@ -554,12 +570,12 @@ export default function LandingPage() {
                         <ImageIcon className="w-3 h-3" /> Hero
                       </span>
                       <button type="button" onClick={() => jumpTo('hero')}
-                        className="text-[10px] font-semibold uppercase tracking-wider text-purple-400 hover:text-purple-300 transition-colors">
+                        className="text-[10px] font-semibold uppercase tracking-wider text-primary hover:opacity-70 transition-opacity">
                         Change
                       </button>
                     </div>
                     <div className="relative w-full aspect-[16/10] rounded-xl overflow-hidden shadow-2xl"
-                      style={{ border: '1px solid rgba(168,85,247,0.15)' }}>
+                      style={{ border: '1px solid hsl(var(--border))' }}>
                       <img src={heroImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/5" />
                     </div>
@@ -571,12 +587,12 @@ export default function LandingPage() {
                         <ImageIcon className="w-3 h-3" /> Hero
                       </span>
                       <button type="button" onClick={() => jumpTo('hero')}
-                        className="text-[10px] font-semibold uppercase tracking-wider text-purple-400 hover:text-purple-300 transition-colors">
+                        className="text-[10px] font-semibold uppercase tracking-wider text-primary hover:opacity-70 transition-opacity">
                         Choose
                       </button>
                     </div>
                     <div className="relative w-full aspect-[16/10] rounded-xl overflow-hidden"
-                      style={{ border: '1px dashed rgba(255,255,255,0.12)' }}>
+                      style={{ border: '1px dashed hsl(var(--border))' }}>
                       <img src={heroPool[0]} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30" />
                       <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
                         <p className="text-xs text-muted-foreground leading-relaxed">
@@ -597,7 +613,7 @@ export default function LandingPage() {
             ].map((f, i) => (
               <motion.div key={f.title} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 + i * 0.1, duration: 0.6, ease: EASE }}
                 whileHover={{ y: -4 }}
-                className="lg:col-span-4 flex gap-4 p-5 rounded-2xl bg-card/40 border border-border/30 hover:bg-card/70 hover:border-border/60 transition-colors">
+                className="lg:col-span-4 flex gap-4 p-5 rounded-2xl neu-raised-sm">
                 <div className="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center" style={{ background: `${f.accent}15`, color: f.accent }}>
                   {f.icon}
                 </div>
@@ -626,7 +642,7 @@ function Section({ id, index, title, hint, action, children }: { id: string; ind
   return (
     <section id={`section-${id}`} className="scroll-mt-24">
       <div className="flex items-baseline gap-3 mb-4 pb-3 border-b border-border/30">
-        <span className="text-xs font-bold tabular-nums" style={{ color: '#a855f7' }}>{String(index).padStart(2, '0')}</span>
+        <span className="text-xs font-bold tabular-nums" style={{ color: 'hsl(var(--primary))' }}>{String(index).padStart(2, '0')}</span>
         <h2 className="text-sm font-semibold uppercase tracking-wider">{title}</h2>
         <span className="ml-auto text-xs text-muted-foreground/70 hidden sm:inline text-right">{hint}</span>
         {action}
@@ -640,7 +656,7 @@ function OptionTile({ group, selected, onSelect, disabled, flush, multi, childre
   return (
     <motion.button type="button" role={multi ? 'checkbox' : 'radio'} aria-checked={selected} aria-disabled={disabled} disabled={disabled} onClick={onSelect}
       whileHover={disabled ? undefined : { y: -2 }} whileTap={disabled ? undefined : { scale: 0.98 }}
-      className={`group relative text-left rounded-xl border transition-colors ${flush ? '' : 'p-4 pr-8'} ${disabled ? 'opacity-40 cursor-not-allowed border-border/40 bg-muted/10' : selected ? 'border-purple-500/60' : 'border-border/50 bg-muted/20 hover:border-border hover:bg-muted/40'}`}>
+      className={`group relative text-left rounded-xl transition-shadow ${flush ? '' : 'p-4 pr-8'} ${disabled ? 'opacity-40 cursor-not-allowed neu-inset' : selected ? 'neu-inset ring-2 ring-primary/50' : 'neu-raised-sm neu-pressable'}`}>
       <AnimatePresence>
         {selected && !disabled && (
           // Single-choice groups slide one highlight between tiles; multi-select tiles fade their own.
@@ -652,7 +668,7 @@ function OptionTile({ group, selected, onSelect, disabled, flush, multi, childre
       <AnimatePresence>
         {selected && !disabled && (
           <motion.span key="check" className="absolute top-3 right-3 z-10" initial={{ scale: 0, rotate: -45 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0 }}>
-            <Check className="w-3.5 h-3.5" style={{ color: '#a855f7' }} />
+            <Check className="w-3.5 h-3.5" style={{ color: 'hsl(var(--primary))' }} />
           </motion.span>
         )}
       </AnimatePresence>
@@ -664,7 +680,7 @@ function OptionTile({ group, selected, onSelect, disabled, flush, multi, childre
 function SelectAll({ allSelected, onToggle, clearLabel = 'Clear' }: { allSelected: boolean; onToggle: (selectAll: boolean) => void; clearLabel?: string }) {
   return (
     <button type="button" onClick={() => onToggle(!allSelected)}
-      className="text-[11px] font-semibold uppercase tracking-wider text-purple-400 hover:text-purple-300 transition-colors">
+      className="text-[11px] font-semibold uppercase tracking-wider text-primary hover:opacity-70 transition-opacity">
       {allSelected ? clearLabel : 'Select all'}
     </button>
   );
@@ -672,7 +688,7 @@ function SelectAll({ allSelected, onToggle, clearLabel = 'Clear' }: { allSelecte
 
 function SummaryItem({ label, value, span }: { label: string; value: string; span?: boolean }) {
   return (
-    <div className={`rounded-lg bg-muted/20 border border-border/30 px-3 py-2.5 min-w-0 ${span ? 'col-span-2' : ''}`}>
+    <div className={`rounded-lg neu-inset px-3 py-2.5 min-w-0 ${span ? 'col-span-2' : ''}`}>
       <dt className="text-[10px] uppercase tracking-wider text-muted-foreground/70">{label}</dt>
       <dd className="text-sm font-medium mt-0.5 overflow-hidden">
         <AnimatePresence mode="wait" initial={false}>

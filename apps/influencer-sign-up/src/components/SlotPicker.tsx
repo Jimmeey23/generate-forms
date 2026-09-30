@@ -1,5 +1,5 @@
 import { Label } from '@project/components/ui/label';
-import { Clock, Users, CalendarDays } from 'lucide-react';
+import { Clock, Users, CalendarDays, MapPin } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { FormSlot } from '@/lib/api';
 import { formatSlotDate, formatSlotTime } from '@/lib/slots';
@@ -21,9 +21,10 @@ type Props = {
   error?: string;
   loading?: boolean;
   bold?: boolean;
+  allowWaitlist?: boolean;
 };
 
-export default function SlotPicker({ slots, value, onChange, heading, helperText, required, showRemaining = true, error, loading, bold }: Props) {
+export default function SlotPicker({ slots, value, onChange, heading, helperText, required, showRemaining = true, error, loading, bold, allowWaitlist }: Props) {
   const labelClass = `text-xs uppercase tracking-wider ${bold ? 'font-bold' : 'font-medium'}`;
 
   // Slots arrive ordered by date then time; group them so multi-day events read as a schedule.
@@ -62,22 +63,23 @@ export default function SlotPicker({ slots, value, onChange, heading, helperText
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                 {day.slots.map((slot) => {
                   const full = slot.remaining <= 0;
+                  const selectable = !full || allowWaitlist;
                   const selected = value === slot.id;
                   const low = !full && slot.remaining <= 2;
                   return (
                     <motion.button
                       key={slot.id}
                       type="button"
-                      disabled={full}
-                      whileHover={full ? undefined : { scale: 1.02 }}
-                      whileTap={full ? undefined : { scale: 0.97 }}
+                      disabled={!selectable}
+                      whileHover={selectable ? { scale: 1.02 } : undefined}
+                      whileTap={selectable ? { scale: 0.97 } : undefined}
                       onClick={() => onChange(slot.id)}
                       className="relative flex flex-col items-center justify-center rounded-xl py-3 px-2 transition-all"
                       style={{
                         background: full ? 'hsl(var(--form-surface))' : selected ? 'hsl(var(--form-surface-hover))' : 'hsl(var(--form-surface))',
                         border: `2px solid ${selected ? 'hsl(var(--form-text))' : 'hsl(var(--form-border))'}`,
-                        opacity: full ? 0.45 : 1,
-                        cursor: full ? 'not-allowed' : 'pointer',
+                        opacity: selectable ? 1 : 0.45,
+                        cursor: selectable ? 'pointer' : 'not-allowed',
                       }}
                     >
                       <Clock className="w-3.5 h-3.5 mb-1" style={{ color: selected ? 'hsl(var(--form-text))' : 'hsl(var(--form-text-muted))' }} />
@@ -87,11 +89,19 @@ export default function SlotPicker({ slots, value, onChange, heading, helperText
                       {!slot.label && slot.endTime && (
                         <span className="text-[10px]" style={{ color: 'hsl(var(--form-text-muted))' }}>to {formatSlotTime(slot.endTime)}</span>
                       )}
+                      {slot.location && (
+                        <span className="flex items-center gap-1 text-[10px] mt-0.5" style={{ color: 'hsl(var(--form-text-muted))' }}>
+                          <MapPin className="w-2.5 h-2.5" />{slot.location}
+                        </span>
+                      )}
                       {showRemaining && (
                         <span className="flex items-center gap-1 text-[10px] mt-0.5 font-medium"
-                          style={{ color: full ? 'hsl(var(--form-error))' : low ? '#e08b3a' : 'hsl(var(--form-text-muted))' }}>
+                          style={{ color: full ? (allowWaitlist ? '#e08b3a' : 'hsl(var(--form-error))') : low ? '#e08b3a' : 'hsl(var(--form-text-muted))' }}>
                           <Users className="w-2.5 h-2.5" />{full ? 'Full' : `${slot.remaining} left`}
                         </span>
+                      )}
+                      {slot.note && (
+                        <span className="text-[10px] mt-0.5 text-center leading-snug" style={{ color: 'hsl(var(--form-text-muted))' }}>{slot.note}</span>
                       )}
                       {selected && (
                         <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}

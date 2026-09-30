@@ -89,6 +89,8 @@ function fieldsForSignupType(signupType, studios, classFormats = []) {
     ? { id: 'center', type: 'select', label: 'Studio', required: true, gridCol: 'full', options: studios }
     : { id: 'center', type: 'select', label: 'Preferred Studio', placeholder: 'Choose your studio', required: true, gridCol: 'full', helperText: 'Select the location nearest to you', options: studios };
   const common = [...adult.slice(0, 4), studioField];
+  // Slot bookings take contact details and a slot. No class, no waiver, no signature.
+  if (signupType === 'slots') return [...common, TEMPLATE_FIELDS.find((field) => field.id === 'terms')];
   if (signupType === 'kids') return [
     ...common,
     { id: 'childName', type: 'text', label: "Child's full name", required: true, gridCol: 'full' },
@@ -152,8 +154,10 @@ async function createUniqueSlug(label) {
 }
 // Slot sign-ups are opt-in per form; every other form keeps its existing behaviour.
 const SLOT_BOOKING_DEFAULTS = { enabled: false, required: true, heading: 'Pick your time slot', helperText: '', showRemaining: true, defaultCapacity: 6 };
+const ISO_MINUTE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 function normalizeSlotBooking(raw) {
   const value = raw && typeof raw === 'object' ? raw : {};
+  const window = (field) => (ISO_MINUTE.test(String(value[field] || '')) ? String(value[field]) : '');
   return {
     enabled: value.enabled === true,
     required: value.required !== false,
@@ -161,6 +165,12 @@ function normalizeSlotBooking(raw) {
     helperText: String(value.helperText ?? ''),
     showRemaining: value.showRemaining !== false,
     defaultCapacity: Math.max(1, Math.min(10000, Math.floor(Number(value.defaultCapacity) || SLOT_BOOKING_DEFAULTS.defaultCapacity))),
+    // Advanced controls, all off/absent by default so existing forms are unaffected.
+    allowWaitlist: value.allowWaitlist === true,
+    allowDuplicateEmail: value.allowDuplicateEmail === true,
+    opensAt: window('opensAt'),
+    closesAt: window('closesAt'),
+    cutoffMinutes: Math.max(0, Math.min(10080, Math.floor(Number(value.cutoffMinutes) || 0))),
   };
 }
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -173,6 +183,7 @@ function publicSlot(record) {
   return {
     id: record.id, date: String(record.slot_date || ''), startTime: trimTime(record.start_time), endTime: trimTime(record.end_time),
     label: record.label || '', capacity, bookedCount: booked, remaining: Math.max(capacity - booked, 0), position: Number(record.position) || 0,
+    location: record.location || '', note: record.note || '',
   };
 }
 function parseSlotInput(raw, index, defaultCapacity) {
@@ -184,6 +195,7 @@ function parseSlotInput(raw, index, defaultCapacity) {
   if (endRaw && !HHMM.test(endRaw)) throw Object.assign(new Error(`Slot ${index + 1} has an invalid end time.`), { status: 400 });
   return {
     date, startTime, endTime: endRaw || null, label: String(raw?.label || '').slice(0, 120),
+    location: String(raw?.location || '').slice(0, 200), note: String(raw?.note || '').slice(0, 300),
     capacity: Math.max(0, Math.min(10000, Math.floor(Number(raw?.capacity ?? defaultCapacity) || 0))), position: index,
   };
 }
@@ -242,7 +254,7 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const influencerName = extractPromptValue(prompt, 'Influencer/Partner');
   const eventName = extractPromptValue(prompt, 'Event');
   const details = extractPromptValue(prompt, 'Details');
-  const signupType = ['kids', 'free', 'paid'].includes(req.body.signupType) ? req.body.signupType : 'free';
+  const signupType = ['kids', 'free', 'paid', 'slots'].includes(req.body.signupType) ? req.body.signupType : 'free';
   const requestedStudios = Array.isArray(req.body.targetStudios) ? req.body.targetStudios : [req.body.targetStudio || FALLBACK_CENTER];
   const targetStudios = SUPPORTED_STUDIOS.filter((studio) => requestedStudios.map((value) => String(value).trim()).includes(studio));
   if (!targetStudios.length) return res.status(400).json({ error: 'Choose at least one supported studio.' });
@@ -258,7 +270,7 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const offeredFormats = [...new Set(targetStudios.flatMap(getClassOptions))];
   const unavailable = requestedFormats.find((format) => !CLASS_FORMATS.includes(format) || !offeredFormats.includes(format));
   if (unavailable) return res.status(400).json({ error: `${unavailable} is not offered at the selected studios.` });
-  const classFormats = signupType === 'kids' ? [] : CLASS_FORMATS.filter((format) => requestedFormats.includes(format));
+  const classFormats = signupType === 'kids' || signupType === 'slots' ? [] : CLASS_FORMATS.filter((format) => requestedFormats.includes(format));
   const classFormat = classFormats.length === 1 ? classFormats[0] : '';
   const submissionLimit = Math.max(0, Math.min(100000, Math.floor(Number(req.body.submissionLimit) || 0)));
   const eventDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.eventDate || '')) ? req.body.eventDate : '';
@@ -287,7 +299,10 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   // The builder may pin a hero and the UTMs; anything else falls back to the generated defaults.
   const heroImage = HERO_IMAGES.includes(String(req.body.heroImage || '')) ? String(req.body.heroImage) : heroPool[(seed >>> 4) % heroPool.length];
   const utmOr = (value, fallback) => utmSlug(value) || fallback;
-  const formData = { fields: fieldsForSignupType(signupType, targetStudios, classFormats), signupType, targetStudio, targetStudios, sessionId, sessionStudio, classFormat, classFormats, submissionLimit, slotBooking: normalizeSlotBooking(req.body.slotBooking), eventDate, eventTime, eventVenue, layout: 'stacked', heroImage, heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: BRAND_ACCENT, formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: utmOr(req.body.utmSource, hostSlug || eventSlug || 'general'), utmChannel: utmOr(req.body.utmChannel, eventSlug || hostSlug || 'general'), utmCampaign: utmOr(req.body.utmCampaign, eventSlug || hostSlug || 'general'), hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
+  const slotBooking = normalizeSlotBooking(req.body.slotBooking);
+  // The Slot Bookings type is defined by its schedule, so the toggle is implicit.
+  if (signupType === 'slots') slotBooking.enabled = true;
+  const formData = { fields: fieldsForSignupType(signupType, targetStudios, classFormats), signupType, targetStudio, targetStudios, sessionId, sessionStudio, classFormat, classFormats, submissionLimit, slotBooking, eventDate, eventTime, eventVenue, layout: 'stacked', heroImage, heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor: BRAND_ACCENT, formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: utmOr(req.body.utmSource, hostSlug || eventSlug || 'general'), utmChannel: utmOr(req.body.utmChannel, eventSlug || hostSlug || 'general'), utmCampaign: utmOr(req.body.utmCampaign, eventSlug || hostSlug || 'general'), hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
   const slug = await createUniqueSlug(eventName || influencerName || campaignName);
   const { data, error } = await supabase.from('forms').insert({ title, description, slug, form_data: formData, theme_color: 'midnight', status: 'Draft', creator_email: req.body.creatorEmail || '' }).select().single();
   if (error) throw error;
@@ -371,12 +386,12 @@ app.put('/api/forms/:id/slots', asyncRoute(async (req, res) => {
   const updates = [];
   for (const slot of parsed) {
     const match = existing.get(`${slot.date} ${slot.startTime}`);
-    const row = { form_id: req.params.id, slot_date: slot.date, start_time: slot.startTime, end_time: slot.endTime, label: slot.label, capacity: slot.capacity, position: slot.position };
+    const row = { form_id: req.params.id, slot_date: slot.date, start_time: slot.startTime, end_time: slot.endTime, label: slot.label, location: slot.location, note: slot.note, capacity: slot.capacity, position: slot.position };
     if (match) {
       keep.push(match.id);
       // Capacity may not be cut below the seats already taken.
       const capacity = Math.max(slot.capacity, Number(match.booked_count) || 0);
-      updates.push({ id: match.id, patch: { end_time: slot.endTime, label: slot.label, capacity, position: slot.position } });
+      updates.push({ id: match.id, patch: { end_time: slot.endTime, label: slot.label, location: slot.location, note: slot.note, capacity, position: slot.position } });
     } else {
       inserts.push(row);
     }
@@ -406,7 +421,7 @@ app.put('/api/forms/:id/slots', asyncRoute(async (req, res) => {
 app.get('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   const { data, error } = await supabase.from('form_submissions').select('*').eq('form_id', req.params.id).order('submitted_at', { ascending: false }).limit(500);
   if (error) throw error;
-  res.json({ submissions: data.map((row) => ({ id: row.id, responses: row.response_data || {}, submitterEmail: row.submitter_email || '', slotLabel: row.slot_label || '', submittedAt: row.submitted_at || '' })) });
+  res.json({ submissions: data.map((row) => ({ id: row.id, responses: row.response_data || {}, submitterEmail: row.submitter_email || '', slotLabel: row.slot_label || '', waitlisted: row.waitlisted === true, submittedAt: row.submitted_at || '' })) });
 }));
 
 const CENTER_CONFIG = {
@@ -460,7 +475,11 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   const { data: form, error: formError } = await supabase.from('forms').select('*').eq('id', req.params.id).single();
   if (formError) throw formError;
   const formData = form.form_data || {};
-  if (!responses.signatureRealSignature || !responses.waiverAccepted) return res.status(400).json({ error: 'A drawn signature and waiver acceptance are required.' });
+  const isSlotBooking = formData.signupType === 'slots';
+  // Slot bookings collect a slot, not a class: no waiver, no signature, no Momence profile.
+  if (!isSlotBooking && (!responses.signatureRealSignature || !responses.waiverAccepted)) {
+    return res.status(400).json({ error: 'A drawn signature and waiver acceptance are required.' });
+  }
   const rawCenter = String(responses.center || '').trim();
   const centerKey = CENTER_CONFIG[rawCenter.toLowerCase()] ? rawCenter.toLowerCase() : FALLBACK_CENTER.toLowerCase();
   const config = CENTER_CONFIG[centerKey];
@@ -478,13 +497,24 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
     if (countCheckError) throw countCheckError;
     if ((count || 0) >= submissionLimit) return res.status(409).json({ error: 'This form has reached its sign-up limit and is no longer accepting responses.', limitReached: true });
   }
-  if (await isDuplicateSubmission(req.params.id, email, phone)) return res.status(409).json({ error: 'You have already signed up for this form with this email or phone number.', duplicate: true });
+  const slotConfig = normalizeSlotBooking(formData.slotBooking);
+  if (!(isSlotBooking && slotConfig.allowDuplicateEmail) && await isDuplicateSubmission(req.params.id, email, phone)) {
+    return res.status(409).json({ error: 'You have already signed up for this form with this email or phone number.', duplicate: true });
+  }
 
   // Time-slot sign-ups. Only forms with slot booking switched on reach any of this.
-  const slotBooking = normalizeSlotBooking(formData.slotBooking);
+  const slotBooking = slotConfig;
   let reservedSlotId = '';
   let reservedSlotLabel = '';
+  let waitlisted = false;
   if (slotBooking.enabled) {
+    const now = Date.now();
+    if (slotBooking.opensAt && now < Date.parse(`${slotBooking.opensAt}:00`)) {
+      return res.status(409).json({ error: 'Bookings for this form have not opened yet.', windowClosed: true });
+    }
+    if (slotBooking.closesAt && now > Date.parse(`${slotBooking.closesAt}:00`)) {
+      return res.status(409).json({ error: 'Bookings for this form have closed.', windowClosed: true });
+    }
     const requestedSlotId = String(responses.slotId || '').trim();
     if (!requestedSlotId) {
       if (slotBooking.required) return res.status(400).json({ error: 'Please choose a time slot.' });
@@ -492,18 +522,30 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
       const { data: slot, error: slotError } = await supabase.from('form_slots').select('*').eq('id', requestedSlotId).eq('form_id', req.params.id).maybeSingle();
       if (slotError) throw slotError;
       if (!slot) return res.status(400).json({ error: 'That time slot is not available on this form.' });
+      if (slotBooking.cutoffMinutes > 0) {
+        // Slot times are wall-clock in IST, which is where every studio is.
+        const startsAt = Date.parse(`${slot.slot_date}T${trimTime(slot.start_time)}:00+05:30`);
+        if (Number.isFinite(startsAt) && startsAt - now < slotBooking.cutoffMinutes * 60000) {
+          return res.status(409).json({ error: 'That slot is too close to its start time to book. Please choose a later one.', cutoff: true });
+        }
+      }
       const { data: reserved, error: reserveError } = await supabase.rpc('reserve_form_slot', { target_slot_id: slot.id, target_form_id: req.params.id });
       if (reserveError) throw reserveError;
-      if (!reserved) return res.status(409).json({ error: 'Sorry, that time slot just filled up. Please choose another.', slotFull: true, slotId: slot.id });
+      if (!reserved) {
+        // A waitlist entry records interest without consuming a seat.
+        if (!slotBooking.allowWaitlist) return res.status(409).json({ error: 'Sorry, that time slot just filled up. Please choose another.', slotFull: true, slotId: slot.id });
+        waitlisted = true;
+      }
       reservedSlotId = slot.id;
       reservedSlotLabel = slot.label || `${slot.slot_date} ${trimTime(slot.start_time)}`;
       responses.slotLabel = reservedSlotLabel;
+      if (slot.location) responses.slotLocation = slot.location;
     }
   }
-  const { data: submission, error } = await supabase.from('form_submissions').insert({ form_id: req.params.id, slot_id: reservedSlotId || null, slot_label: reservedSlotLabel, response_data: responses, submitter_email: email, first_name: responses.firstName || '', last_name: responses.lastName || '', phone, center: rawCenter, class_type: responses.classType || '', utm_source: utmSource, utm_campaign: utmCampaign, utm_channel: utmChannel, utm_medium: attribution.utmMedium, utm_term: attribution.utmTerm, utm_content: attribution.utmContent, gclid: attribution.gclid, fbclid: attribution.fbclid, referrer: attribution.referrer, landing_page: attribution.landingPage, ab_variant: attribution.abVariant }).select('id').single();
+  const { data: submission, error } = await supabase.from('form_submissions').insert({ form_id: req.params.id, slot_id: reservedSlotId || null, slot_label: reservedSlotLabel, waitlisted, response_data: responses, submitter_email: email, first_name: responses.firstName || '', last_name: responses.lastName || '', phone, center: rawCenter, class_type: responses.classType || '', utm_source: utmSource, utm_campaign: utmCampaign, utm_channel: utmChannel, utm_medium: attribution.utmMedium, utm_term: attribution.utmTerm, utm_content: attribution.utmContent, gclid: attribution.gclid, fbclid: attribution.fbclid, referrer: attribution.referrer, landing_page: attribution.landingPage, ab_variant: attribution.abVariant }).select('id').single();
   if (error) {
     // The seat was taken before the row was written; give it back rather than leaking capacity.
-    if (reservedSlotId) await supabase.rpc('release_form_slot', { target_slot_id: reservedSlotId }).catch(() => {});
+    if (reservedSlotId && !waitlisted) await supabase.rpc('release_form_slot', { target_slot_id: reservedSlotId }).catch(() => {});
     throw error;
   }
   const { error: countError } = await supabase.rpc('increment_form_submission_count', { target_form_id: req.params.id });
@@ -531,8 +573,11 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   // waiver, membership, or booking operations need manual recovery.
   let signup = null;
   let signupError = null;
+  // Slot bookings stop here: the lead is recorded, but no Momence profile, membership,
+  // waiver or class booking is created, and the guest is not sent to pick a class.
   try {
-    signup = operationalForm.signupType === 'kids' ? await signupKid(responses, operationalForm) : await signupAdult(responses, operationalForm);
+    if (isSlotBooking) signup = null;
+    else signup = operationalForm.signupType === 'kids' ? await signupKid(responses, operationalForm) : await signupAdult(responses, operationalForm);
     // Checkout is created on the class step, once the guest's required profile fields are saved.
   } catch (error) {
     signupError = error;
@@ -541,14 +586,14 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   try {
     const sheetData = await ensureFormSheet(form);
     if (sheetData.sheetId) await appendSubmissionRow(sheetData, { responses, meta: {
-      _submittedAt: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }), _submissionId: submission.id, _slot: reservedSlotLabel, _momenceLead: webhookStatus,
-      _momenceSignup: signupError ? `ERROR: ${String(signupError?.message || signupError).slice(0, 300)}` : (signup ? 'Created · awaiting class selection' : 'Not created'),
+      _submittedAt: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }), _submissionId: submission.id, _slot: reservedSlotLabel + (waitlisted ? ' (waitlist)' : ''), _momenceLead: webhookStatus,
+      _momenceSignup: isSlotBooking ? 'Not applicable · slot booking' : signupError ? `ERROR: ${String(signupError?.message || signupError).slice(0, 300)}` : (signup ? 'Created · awaiting class selection' : 'Not created'),
       _utmSource: utmSource, _utmCampaign: utmCampaign, _utmChannel: utmChannel, _utmMedium: attribution.utmMedium, _referrer: attribution.referrer,
     } });
   } catch (sheetError) { console.error(`Submission ${submission.id} saved, but Google Sheet append failed:`, sheetError?.message || sheetError); }
   // Paid signups cannot continue to checkout without a Momence member; free and kids signups go through regardless.
   if (signupError && operationalForm.signupType === 'paid') throw signupError;
-  res.status(201).json({ success: true, submissionId: submission.id, webhookStatus, signup, checkoutUrl: null, signupStatus: signupError ? 'MOMENCE_FAILED' : 'OK', signupError: signupError ? String(signupError?.message || signupError).slice(0, 300) : '' });
+  res.status(201).json({ success: true, submissionId: submission.id, webhookStatus, signup, waitlisted, slotLabel: reservedSlotLabel, checkoutUrl: null, signupStatus: signupError ? 'MOMENCE_FAILED' : 'OK', signupError: signupError ? String(signupError?.message || signupError).slice(0, 300) : '' });
 }));
 
 app.get('/api/payments/confirm', asyncRoute(async (req, res) => {

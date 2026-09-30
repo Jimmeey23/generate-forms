@@ -10,6 +10,8 @@ export type SlotDraft = {
   startTime: string;
   endTime: string;
   label: string;
+  location: string;
+  note: string;
   capacity: number;
   bookedCount: number;
 };
@@ -79,7 +81,7 @@ export function generateSlots(params: GenerateParams, existingSlots: SlotDraft[]
       seen.add(`${date} ${startTime}`);
       created.push({
         key: newSlotKey(), date, startTime, endTime: fromMinutes(t + duration),
-        label: '', capacity: Math.max(1, Math.floor(Number(params.capacity) || 1)), bookedCount: 0,
+        label: '', location: '', note: '', capacity: Math.max(1, Math.floor(Number(params.capacity) || 1)), bookedCount: 0,
       });
     }
   }
@@ -90,5 +92,5 @@ export function generateSlots(params: GenerateParams, existingSlots: SlotDraft[]
 // Shape the API expects when saving a form's slots.
 export const toSlotInput = (slot: SlotDraft) => ({
   date: slot.date, startTime: slot.startTime, endTime: slot.endTime || undefined,
-  label: slot.label, capacity: slot.capacity,
+  label: slot.label, location: slot.location, note: slot.note, capacity: slot.capacity,
 });

@@ -19,6 +19,7 @@ import { HERO_IMAGES } from '@/lib/constants';
 import FormRenderer from '@/components/FormRenderer';
 import { FieldEditorDialog } from '@/components/FieldEditor';
 import { SlotBuilder, sortDrafts, type SlotDraft } from '@/components/SlotBuilder';
+import { toSlotInput } from '@/lib/slots';
 
 type FormData = NonNullable<GetFormOutputType['form']>;
 type Field = { id: string; type: string; label: string; placeholder?: string; required?: boolean; helperText?: string; options?: string[]; gridCol?: string };
@@ -50,13 +51,13 @@ const POSITION_OPTIONS = [
 
 const toDraft = (slot: FormSlot): SlotDraft => ({
   key: slot.id, id: slot.id, date: slot.date, startTime: slot.startTime,
-  endTime: slot.endTime || '', label: slot.label, capacity: slot.capacity, bookedCount: slot.bookedCount,
+  endTime: slot.endTime || '', label: slot.label, location: slot.location, note: slot.note, capacity: slot.capacity, bookedCount: slot.bookedCount,
 });
 
 // The live preview needs slot shapes, but unsaved drafts have no id yet.
 const draftToSlot = (slot: SlotDraft, index: number): FormSlot => ({
   id: slot.id || slot.key, date: slot.date, startTime: slot.startTime, endTime: slot.endTime,
-  label: slot.label, capacity: slot.capacity, bookedCount: slot.bookedCount,
+  label: slot.label, location: slot.location, note: slot.note, capacity: slot.capacity, bookedCount: slot.bookedCount,
   remaining: Math.max(slot.capacity - slot.bookedCount, 0), position: index,
 });
 
@@ -184,7 +185,7 @@ export default function FormPreview() {
       try {
         const { slots } = await saveFormSlots({
           formId: form.id,
-          slots: sortDrafts(editSlots).map((slot) => ({ date: slot.date, startTime: slot.startTime, endTime: slot.endTime || undefined, label: slot.label, capacity: slot.capacity })),
+          slots: sortDrafts(editSlots).map(toSlotInput),
         });
         setEditSlots(slots.map(toDraft));
       } catch (error) {
@@ -279,7 +280,7 @@ export default function FormPreview() {
   return (
     <div className="min-h-screen bg-background">
       {/* Toolbar */}
-      <div className="bg-card border-b border-border sticky top-0 z-50">
+      <div className="bg-background border-b border-border sticky top-0 z-50">
         <div className="container mx-auto px-4 h-14 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={() => navigate('/dashboard')}><ArrowLeft className="w-4 h-4 mr-1" /> Back</Button>
@@ -509,7 +510,7 @@ export default function FormPreview() {
 
 function SidebarCard({ title, icon, action, children }: { title: string; icon?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+    <div className="neu-raised rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-sm flex items-center gap-2">{icon}{title}</h3>
         {action}

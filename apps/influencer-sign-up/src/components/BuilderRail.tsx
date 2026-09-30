@@ -28,7 +28,7 @@ export default function BuilderRail({ sections, activeId, onJump }: {
           <span className="text-[11px] uppercase tracking-wider font-bold text-muted-foreground">Progress</span>
           <span className="text-[11px] tabular-nums text-muted-foreground/70">{doneCount}/{required.length}</span>
         </div>
-        <div className="h-1 rounded-full bg-muted/30 overflow-hidden">
+        <div className="h-1 rounded-full neu-inset overflow-hidden">
           <div className="h-full rounded-full transition-[width] duration-500"
             style={{ width: `${required.length ? (doneCount / required.length) * 100 : 0}%`, background: 'linear-gradient(90deg, #a855f7, #06b6d4)' }} />
         </div>
@@ -45,19 +45,19 @@ export default function BuilderRail({ sections, activeId, onJump }: {
                   <button type="button" onClick={() => onJump(section.id)}
                     aria-current={active ? 'step' : undefined}
                     className="group w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-muted/30"
-                    style={active ? { background: 'rgba(168,85,247,0.1)' } : undefined}>
+                    style={active ? { background: 'hsl(var(--primary) / 0.12)' } : undefined}>
                     <span className="w-4 h-4 shrink-0 rounded-full flex items-center justify-center transition-colors"
                       style={{
-                        background: section.done && !section.optional ? '#a855f7' : 'transparent',
+                        background: section.done && !section.optional ? 'hsl(var(--primary))' : 'transparent',
                         border: section.done && !section.optional
                           ? 'none'
-                          : `1px solid ${section.warn ? 'rgba(249,115,22,0.7)' : 'rgba(255,255,255,0.18)'}`,
+                          : `1px solid ${section.warn ? 'hsl(28 85% 48%)' : 'hsl(var(--border))'}`,
                       }}>
                       {section.done && !section.optional && <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />}
                       {section.optional && <span className="w-1 h-1 rounded-full bg-muted-foreground/40" />}
                     </span>
                     <span className="text-xs truncate transition-colors"
-                      style={{ color: active ? '#c4a3f7' : undefined, fontWeight: active ? 600 : 400 }}>
+                      style={{ color: active ? 'hsl(var(--primary))' : undefined, fontWeight: active ? 600 : 400 }}>
                       {section.title}
                     </span>
                   </button>

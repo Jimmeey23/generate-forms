@@ -100,6 +100,9 @@ export default function FormFill() {
         toast.error(result.signupError || 'We saved your details, but could not complete your booking. Our team will contact you shortly.');
         return;
       }
+      if (result.waitlisted) {
+        toast.info(`You are on the waitlist for ${result.slotLabel || 'that slot'}. We will contact you if a spot opens.`);
+      }
       navigate('/success');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to submit. Please try again.');

@@ -343,6 +343,7 @@ function FormSection({ form, onSubmit, values, errors, setValue, submitting, chi
           helperText={form.slotBooking.helperText}
           required={form.slotBooking.required !== false}
           showRemaining={form.slotBooking.showRemaining !== false}
+          allowWaitlist={form.slotBooking.allowWaitlist === true}
           loading={form.slotsLoading}
           error={errors.slotId}
           bold={form.boldLabels}

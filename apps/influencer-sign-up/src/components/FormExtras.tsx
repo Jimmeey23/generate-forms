@@ -5,6 +5,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@p
 import { HERO_IMAGES } from '@/lib/constants';
 import { cityFor } from '@/lib/signupDetails';
 import { CLASS_FORMAT_INFO, FAQS, KEY_BENEFITS, MARQUEE_FORMATS, METHOD_FEATURES, NEXT_STEPS, REVIEWS_FEEDS, STUDIO_INFO, type City } from '@/lib/formContent';
+import type { SignupType } from '@/lib/api';
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 const rise: Variants = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.7, ease: EASE } } };
@@ -20,7 +21,7 @@ type Review = { name: string; text: string; meta: string; rating: number };
 type MomenceReview = { id: number; comment: string; grade: number; reviewerName: string; sessionName?: string | null; teacherFullName?: string | null };
 
 /** Landing-page sections beneath a generated form; they share the form's column so everything lines up. */
-export default function FormExtras({ studios, classFormats, signupType }: { studios: string[]; classFormats: string[]; signupType: 'kids' | 'free' | 'paid' }) {
+export default function FormExtras({ studios, classFormats, signupType }: { studios: string[]; classFormats: string[]; signupType: SignupType }) {
   const cities = useMemo(() => [...new Set(studios.map(cityFor))] as City[], [studios]);
   const city: City = cities.length === 1 ? cities[0] : 'mumbai';
   const offered = cities.includes('mumbai') ? ALL_FORMATS : ['Barre'];
@@ -85,7 +86,7 @@ export default function FormExtras({ studios, classFormats, signupType }: { stud
 
       <PhotoMarquee />
 
-      {signupType !== 'kids' && (
+      {signupType !== 'kids' && signupType !== 'slots' && (
         <Section index={next()} eyebrow="Class Formats" title={<>Find your <Accent>format</Accent>.</>}
           lede={formats.length === 1 ? `This experience is built around ${formats[0]}.` : 'Every format carries the same Physique 57 method, tuned for a different kind of challenge.'}>
           <motion.div {...inView} variants={stagger} className="space-y-4">

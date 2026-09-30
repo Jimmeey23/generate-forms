@@ -31,13 +31,13 @@ export default function HeroPicker({ images, value, onChange }: {
               className="relative aspect-[3/2] rounded-lg overflow-hidden transition-all duration-200 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
               style={{
                 opacity: isSelected ? 1 : 0.55,
-                border: isSelected ? '2px solid rgba(168,85,247,0.7)' : '1px solid rgba(255,255,255,0.08)',
-                boxShadow: isSelected ? '0 0 16px rgba(168,85,247,0.2)' : 'none',
+                border: isSelected ? '2px solid hsl(var(--primary))' : '1px solid hsl(var(--border))',
+                boxShadow: isSelected ? '0 0 0 3px hsl(var(--primary) / 0.18)' : 'none',
               }}>
               <img src={image} alt="" loading="lazy" className="w-full h-full object-cover" />
               {isSelected && (
                 <span className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full flex items-center justify-center"
-                  style={{ background: '#a855f7' }}>
+                  style={{ background: 'hsl(var(--primary))' }}>
                   <Check className="w-3 h-3 text-white" strokeWidth={3} />
                 </span>
               )}

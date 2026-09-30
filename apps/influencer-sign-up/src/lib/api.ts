@@ -1,5 +1,7 @@
 import type { Attribution } from './attribution';
 
+export type SignupType = 'kids' | 'free' | 'paid' | 'slots';
+
 export type FormRecord = {
   id: string; title: string; description: string; slug: string; fields: any[]; themeColor: string; layout: string;
   heroImage: string; utmSource: string; utmChannel: string; utmCampaign: string; status: string;
@@ -9,18 +11,25 @@ export type FormRecord = {
   logoUrl: string; influencerName: string; eventName: string; metadataTitle: string; metadataDescription: string;
   formWidth: number; formMinHeight: number; formBorderRadius: number; formPadding: number; boldLabels: boolean;
   accentColor: string; heroScale: number;
-  signupType: 'kids' | 'free' | 'paid'; targetStudio: string; sessionId: string; classFormat: string;
+  signupType: SignupType; targetStudio: string; sessionId: string; classFormat: string;
   targetStudios: string[]; classFormats: string[]; sessionStudio: string; eventDate: string; eventTime: string; eventVenue: string;
   sheetUrl: string; submissionLimit: number;
   slotBooking: SlotBooking;
 };
 
 // Time-slot sign-ups: off unless a form explicitly switches them on.
-export type SlotBooking = { enabled: boolean; required: boolean; heading: string; helperText: string; showRemaining: boolean; defaultCapacity: number };
-export type FormSlot = { id: string; date: string; startTime: string; endTime: string; label: string; capacity: number; bookedCount: number; remaining: number; position: number };
-export type SlotInput = { date: string; startTime: string; endTime?: string; label?: string; capacity: number };
-export const DEFAULT_SLOT_BOOKING: SlotBooking = { enabled: false, required: true, heading: 'Pick your time slot', helperText: '', showRemaining: true, defaultCapacity: 6 };
-export type SubmissionRecord = { id: string; responses: Record<string, any>; submitterEmail: string; slotLabel: string; submittedAt: string };
+export type SlotBooking = {
+  enabled: boolean; required: boolean; heading: string; helperText: string; showRemaining: boolean; defaultCapacity: number;
+  // Advanced controls, used by the Slot Bookings form type.
+  allowWaitlist: boolean; allowDuplicateEmail: boolean; opensAt: string; closesAt: string; cutoffMinutes: number;
+};
+export type FormSlot = { id: string; date: string; startTime: string; endTime: string; label: string; location: string; note: string; capacity: number; bookedCount: number; remaining: number; position: number };
+export type SlotInput = { date: string; startTime: string; endTime?: string; label?: string; location?: string; note?: string; capacity: number };
+export const DEFAULT_SLOT_BOOKING: SlotBooking = {
+  enabled: false, required: true, heading: 'Pick your time slot', helperText: '', showRemaining: true, defaultCapacity: 6,
+  allowWaitlist: false, allowDuplicateEmail: false, opensAt: '', closesAt: '', cutoffMinutes: 0,
+};
+export type SubmissionRecord = { id: string; responses: Record<string, any>; submitterEmail: string; slotLabel: string; waitlisted: boolean; submittedAt: string };
 export type GetFormOutputType = { form: FormRecord | null };
 export type GetFormsOutputType = { forms: FormRecord[] };
 export type GetSubmissionsOutputType = { submissions: SubmissionRecord[] };
@@ -34,7 +43,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return response.json();
 }
 
-export const generateForm = (input: { prompt: string; creatorEmail?: string; signupType: 'kids' | 'free' | 'paid'; targetStudios: string[]; sessionId?: string; sessionStudio?: string; classFormats?: string[]; submissionLimit?: number; eventDate?: string; eventTime?: string; eventVenue?: string; heroImage?: string; utmSource?: string; utmChannel?: string; utmCampaign?: string; slotBooking?: SlotBooking }) => request<{ form: FormRecord }>('/api/generate-form', { method: 'POST', body: JSON.stringify(input) });
+export const generateForm = (input: { prompt: string; creatorEmail?: string; signupType: SignupType; targetStudios: string[]; sessionId?: string; sessionStudio?: string; classFormats?: string[]; submissionLimit?: number; eventDate?: string; eventTime?: string; eventVenue?: string; heroImage?: string; utmSource?: string; utmChannel?: string; utmCampaign?: string; slotBooking?: SlotBooking }) => request<{ form: FormRecord }>('/api/generate-form', { method: 'POST', body: JSON.stringify(input) });
 export const getForms = (input: { creatorEmail?: string }) => request<GetFormsOutputType>(`/api/forms${input.creatorEmail ? `?creatorEmail=${encodeURIComponent(input.creatorEmail)}` : ''}`);
 export const getForm = (input: { id?: string; slug?: string }) => request<GetFormOutputType>(`/api/forms/${encodeURIComponent(input.id || input.slug || '')}${input.slug ? '?by=slug' : ''}`);
 export const updateForm = (input: { id: string; [key: string]: any }) => {
@@ -46,7 +55,7 @@ export const createFormSheet = (input: { formId: string }) => request<{ sheetUrl
 export const getSubmissions = (input: { formId: string }) => request<GetSubmissionsOutputType>(`/api/forms/${encodeURIComponent(input.formId)}/submissions`);
 export const submitForm = (input: { formId: string; responses: Record<string, any>; utmSource?: string; utmChannel?: string; utmCampaign?: string; attribution?: Attribution }) => {
   const { formId, ...body } = input;
-  return request<{ success: boolean; submissionId: string; webhookStatus: string; checkoutUrl?: string | null; signup?: { memberId: number; booked?: boolean; sessionId?: string } | null; signupStatus?: 'OK' | 'MOMENCE_FAILED'; signupError?: string }>(`/api/forms/${encodeURIComponent(formId)}/submissions`, { method: 'POST', body: JSON.stringify(body) });
+  return request<{ success: boolean; submissionId: string; webhookStatus: string; checkoutUrl?: string | null; signup?: { memberId: number; booked?: boolean; sessionId?: string } | null; waitlisted?: boolean; slotLabel?: string; signupStatus?: 'OK' | 'MOMENCE_FAILED'; signupError?: string }>(`/api/forms/${encodeURIComponent(formId)}/submissions`, { method: 'POST', body: JSON.stringify(body) });
 };
 export const getFormSlots = (input: { formId: string }) => request<{ slots: FormSlot[] }>(`/api/forms/${encodeURIComponent(input.formId)}/slots`);
 export const saveFormSlots = (input: { formId: string; slots: SlotInput[] }) => request<{ slots: FormSlot[] }>(`/api/forms/${encodeURIComponent(input.formId)}/slots`, { method: 'PUT', body: JSON.stringify({ slots: input.slots }) });

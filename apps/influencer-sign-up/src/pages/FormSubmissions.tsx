@@ -58,7 +58,13 @@ export default function FormSubmissions() {
     ];
     // Only slot forms record a slot, so the column stays out of everyone else's table.
     if (hasSlots) {
-      cols.push({ accessorKey: 'slotLabel', header: 'Time Slot', cell: ({ getValue }) => (getValue() as string) || '-' });
+      cols.push({
+        accessorKey: 'slotLabel', header: 'Time Slot',
+        cell: ({ row }) => {
+          const label = row.original.slotLabel || '-';
+          return row.original.waitlisted ? `${label} · waitlist` : label;
+        },
+      });
     }
     fieldLabels.forEach(({ id, label }) => {
       cols.push({
@@ -90,7 +96,7 @@ export default function FormSubmissions() {
     const rows = subs.map(s => [
       s.submittedAt ? format(new Date(s.submittedAt), 'yyyy-MM-dd HH:mm') : '',
       s.submitterEmail,
-      ...(hasSlots ? [s.slotLabel || ''] : []),
+      ...(hasSlots ? [s.slotLabel ? (s.waitlisted ? `${s.slotLabel} (waitlist)` : s.slotLabel) : ''] : []),
       ...fieldLabels.map(f => {
         const v = s.responses[f.id];
         return Array.isArray(v) ? v.join('; ') : v?.toString() || '';

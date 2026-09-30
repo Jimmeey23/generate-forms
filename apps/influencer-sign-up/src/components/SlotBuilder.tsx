@@ -3,7 +3,7 @@ import { Button } from '@project/components/ui/button';
 import { Input } from '@project/components/ui/input';
 import { Label } from '@project/components/ui/label';
 import { Switch } from '@project/components/ui/switch';
-import { Trash2, Plus, Wand2, CalendarPlus, Users } from 'lucide-react';
+import { Trash2, Plus, Wand2, CalendarPlus, Users, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import type { SlotBooking } from '@/lib/api';
 import {
@@ -39,7 +39,7 @@ export function SlotBuilder({
   };
 
   const addBlank = () => onSlotsChange(sortDrafts([...slots, {
-    key: newSlotKey(), date: genDates[0] || today, startTime: genStart, endTime: '', label: '', capacity: genCapacity, bookedCount: 0,
+    key: newSlotKey(), date: genDates[0] || today, startTime: genStart, endTime: '', label: '', location: '', note: '', capacity: genCapacity, bookedCount: 0,
   }]));
 
   const generate = () => {
@@ -89,6 +89,29 @@ export function SlotBuilder({
             <div className="flex items-center justify-between">
               <Label className="text-xs text-muted-foreground">Show spots remaining</Label>
               <Switch checked={booking.showRemaining} onCheckedChange={(v) => patchBooking({ showRemaining: v })} />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground">Waitlist when full</Label>
+              <Switch checked={booking.allowWaitlist} onCheckedChange={(v) => patchBooking({ allowWaitlist: v })} />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground">Allow repeat bookings</Label>
+              <Switch checked={booking.allowDuplicateEmail} onCheckedChange={(v) => patchBooking({ allowDuplicateEmail: v })} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs text-muted-foreground">Opens</Label>
+                <Input type="datetime-local" value={booking.opensAt} onChange={(e) => patchBooking({ opensAt: e.target.value })} className="h-8 text-[11px]" />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Closes</Label>
+                <Input type="datetime-local" value={booking.closesAt} onChange={(e) => patchBooking({ closesAt: e.target.value })} className="h-8 text-[11px]" />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Cutoff before a slot (min)</Label>
+              <Input inputMode="numeric" value={booking.cutoffMinutes || ''} placeholder="0"
+                onChange={(e) => patchBooking({ cutoffMinutes: Number(e.target.value.replace(/\D/g, '')) || 0 })} className="h-8 text-sm" />
             </div>
           </div>
 
