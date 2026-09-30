@@ -4,7 +4,9 @@ import { Button } from '@project/components/ui/button';
 import { Input } from '@project/components/ui/input';
 import { Label } from '@project/components/ui/label';
 import { Loader2, ArrowRight, Sparkles, Zap, Share2, BarChart3, ChevronLeft, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle } from 'lucide-react';
-import { generateForm, getMomenceSessions, type MomenceSession } from '@/lib/api';
+import { generateForm, getMomenceSessions, saveFormSlots, DEFAULT_SLOT_BOOKING, type MomenceSession, type SlotBooking } from '@/lib/api';
+import SlotWizard from '@/components/SlotWizard';
+import { sortDrafts, toSlotInput, type SlotDraft } from '@/lib/slots';
 import { toast } from 'sonner';
 import { BRAND_LOGO_DARK, HERO_IMAGES } from '@/lib/constants';
 import { motion, AnimatePresence, MotionConfig, type Variants } from 'framer-motion';
@@ -64,6 +66,8 @@ export default function LandingPage() {
   const [selectedKey, setSelectedKey] = useState('');
   const [manualId, setManualId] = useState('');
   const [submissionLimit, setSubmissionLimit] = useState('');
+  const [slotBooking, setSlotBooking] = useState<SlotBooking>(DEFAULT_SLOT_BOOKING);
+  const [slotDrafts, setSlotDrafts] = useState<SlotDraft[]>([]);
   const [manualStudio, setManualStudio] = useState('');
   const [sessions, setSessions] = useState<StudioSession[]>([]);
   const [sessionsState, setSessionsState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -135,7 +139,19 @@ export default function LandingPage() {
         toast.error('Paid signups need a Momence class');
         return;
       }
-      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId, sessionStudio: sessionId ? sessionStudio : '', classFormats: effectiveFormats, submissionLimit: Number(submissionLimit) || 0, eventDate, eventTime, eventVenue: eventVenue.trim() });
+      if (slotBooking.enabled && !slotDrafts.length) {
+        toast.error('Add at least one time slot, or switch time slots off.');
+        return;
+      }
+      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId, sessionStudio: sessionId ? sessionStudio : '', classFormats: effectiveFormats, submissionLimit: Number(submissionLimit) || 0, eventDate, eventTime, eventVenue: eventVenue.trim(), slotBooking: slotBooking.enabled ? slotBooking : undefined });
+      // Slots live in their own table, so they are written once the form exists.
+      if (slotBooking.enabled && slotDrafts.length) {
+        try {
+          await saveFormSlots({ formId: form.id, slots: sortDrafts(slotDrafts).map(toSlotInput) });
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : 'Form created, but the time slots could not be saved. Add them from the form editor.');
+        }
+      }
       toast.success('Form created!', form.sheetUrl
         ? { description: 'Submissions will be saved to a public Google Sheet.', action: { label: 'Open Sheet', onClick: () => window.open(form.sheetUrl, '_blank') }, duration: 10000 }
         : undefined);
@@ -360,6 +376,11 @@ export default function LandingPage() {
                     </p>
                   </div>
                 </FormSection>
+
+                <FormSection step="06" title="Time slots" hint="Optional · let guests book a slot with its own cap">
+                  <SlotWizard booking={slotBooking} onBookingChange={setSlotBooking} slots={slotDrafts} onSlotsChange={setSlotDrafts}
+                    fieldClass={fieldClass} labelClass={labelClass} defaultDate={eventDate} />
+                </FormSection>
               </motion.div>
             </motion.section>
 
@@ -380,6 +401,7 @@ export default function LandingPage() {
                   <SummaryItem label="Formats" value={effectiveFormats.join(', ') || 'Any'} span />
                   <SummaryItem label="When" value={eventDate ? new Date(`${eventDate}T${eventTime || '00:00'}`).toLocaleString('en-IN', { day: 'numeric', month: 'short', ...(eventTime ? { hour: 'numeric', minute: '2-digit' } : {}) }) : '—'} />
                   <SummaryItem label="Limit" value={submissionLimit ? `${submissionLimit} sign-ups` : 'Unlimited'} />
+                  <SummaryItem label="Slots" value={slotBooking.enabled ? `${slotDrafts.length} · ${slotDrafts.reduce((sum, slot) => sum + (Number(slot.capacity) || 0), 0)} spots` : 'Off'} />
                   <SummaryItem label="Class" value={selectedSession ? `${sessionDay(selectedSession)} ${sessionTime(selectedSession)}` : sessionId || (signupType === 'paid' ? 'Required' : 'None')} />
                 </dl>
                 <motion.div whileHover={canGenerate ? { scale: 1.02 } : undefined} whileTap={canGenerate ? { scale: 0.98 } : undefined}>

@@ -2,22 +2,7 @@ import { Label } from '@project/components/ui/label';
 import { Clock, Users, CalendarDays } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { FormSlot } from '@/lib/api';
-
-// 24h "HH:MM" as stored, rendered in the 12h form guests expect.
-export function formatSlotTime(time: string): string {
-  const [h, m] = String(time || '').split(':');
-  const hour = Number(h);
-  if (!Number.isFinite(hour)) return time || '';
-  const suffix = hour >= 12 ? 'PM' : 'AM';
-  const display = hour % 12 === 0 ? 12 : hour % 12;
-  return `${display}:${m ?? '00'} ${suffix}`;
-}
-
-export function formatSlotDate(date: string): string {
-  const parsed = new Date(`${date}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return date;
-  return parsed.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
-}
+import { formatSlotDate, formatSlotTime } from '@/lib/slots';
 
 export function slotSummary(slot: Pick<FormSlot, 'date' | 'startTime' | 'endTime' | 'label'>): string {
   if (slot.label) return slot.label;

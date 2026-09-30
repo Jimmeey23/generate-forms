@@ -6,31 +6,12 @@ import { Switch } from '@project/components/ui/switch';
 import { Trash2, Plus, Wand2, CalendarPlus, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import type { SlotBooking } from '@/lib/api';
-import { formatSlotDate, formatSlotTime } from './SlotPicker';
+import {
+  formatSlotDate, formatSlotTime, generateSlots, newSlotKey, sortDrafts, todayIso, type SlotDraft,
+} from '@/lib/slots';
 
-// One editable row in the builder. `id` is present once the slot exists server-side;
-// `bookedCount` is read-only and blocks destructive edits.
-export type SlotDraft = {
-  key: string;
-  id?: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  label: string;
-  capacity: number;
-  bookedCount: number;
-};
-
-const pad = (n: number) => String(n).padStart(2, '0');
-const toMinutes = (time: string) => {
-  const [h, m] = time.split(':').map(Number);
-  return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : NaN;
-};
-const fromMinutes = (total: number) => `${pad(Math.floor(total / 60) % 24)}:${pad(total % 60)}`;
-const newKey = () => `slot_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-
-export const sortDrafts = (drafts: SlotDraft[]) =>
-  [...drafts].sort((a, b) => (a.date === b.date ? a.startTime.localeCompare(b.startTime) : a.date.localeCompare(b.date)));
+export { sortDrafts };
+export type { SlotDraft };
 
 export function SlotBuilder({
   booking, onBookingChange, slots, onSlotsChange,
@@ -40,7 +21,7 @@ export function SlotBuilder({
   slots: SlotDraft[];
   onSlotsChange: (next: SlotDraft[]) => void;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const [genDates, setGenDates] = useState<string[]>([today]);
   const [genStart, setGenStart] = useState('09:30');
   const [genEnd, setGenEnd] = useState('12:30');
@@ -58,35 +39,15 @@ export function SlotBuilder({
   };
 
   const addBlank = () => onSlotsChange(sortDrafts([...slots, {
-    key: newKey(), date: genDates[0] || today, startTime: genStart, endTime: '', label: '', capacity: genCapacity, bookedCount: 0,
+    key: newSlotKey(), date: genDates[0] || today, startTime: genStart, endTime: '', label: '', capacity: genCapacity, bookedCount: 0,
   }]));
 
   const generate = () => {
-    const start = toMinutes(genStart);
-    const end = toMinutes(genEnd);
-    const interval = Math.floor(Number(genInterval) || 0);
-    const dates = genDates.filter(Boolean);
-    if (!dates.length) { toast.error('Add at least one date.'); return; }
-    if (!Number.isFinite(start) || !Number.isFinite(end)) { toast.error('Enter a valid start and end time.'); return; }
-    if (end <= start) { toast.error('The end time must be after the start time.'); return; }
-    if (interval < 5) { toast.error('The interval must be at least 5 minutes.'); return; }
-
-    const existing = new Set(slots.map((slot) => `${slot.date} ${slot.startTime}`));
-    const created: SlotDraft[] = [];
-    for (const date of dates) {
-      // A slot is only generated if it fits entirely before the end time.
-      for (let t = start; t + (Number(genDuration) || interval) <= end; t += interval) {
-        const startTime = fromMinutes(t);
-        if (existing.has(`${date} ${startTime}`)) continue;
-        existing.add(`${date} ${startTime}`);
-        created.push({
-          key: newKey(), date, startTime,
-          endTime: fromMinutes(t + (Number(genDuration) || interval)),
-          label: '', capacity: Math.max(1, Math.floor(Number(genCapacity) || 1)), bookedCount: 0,
-        });
-      }
-    }
-    if (!created.length) { toast.error('No new slots fit that range — they may already exist.'); return; }
+    const { created, error } = generateSlots(
+      { dates: genDates, startTime: genStart, endTime: genEnd, intervalMinutes: genInterval, durationMinutes: genDuration, capacity: genCapacity },
+      slots,
+    );
+    if (error) { toast.error(error); return; }
     onSlotsChange(sortDrafts([...slots, ...created]));
     toast.success(`${created.length} slot${created.length === 1 ? '' : 's'} generated.`);
   };
