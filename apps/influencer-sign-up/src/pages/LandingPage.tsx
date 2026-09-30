@@ -378,6 +378,21 @@ export default function LandingPage() {
                     )}
                 {step.id === 'type' && (
                   <>
+                    <div className="rounded-xl neu-inset p-4 mb-5">
+                      <label htmlFor="describe" className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
+                        <Wand2 className="w-3.5 h-3.5" /> Describe it instead
+                      </label>
+                      <textarea id="describe" value={describeText} onChange={(e) => setDescribeText(e.target.value)} rows={3}
+                        placeholder="Open house on the 14th. Ask for their t-shirt size (S/M/L), which classes they want to try, and any injuries."
+                        className="w-full rounded-lg bg-transparent px-3 py-2 text-sm outline-none resize-none border border-border focus-visible:ring-2 focus-visible:ring-primary/40" />
+                      <div className="flex flex-wrap items-center justify-between gap-3 mt-2">
+                        <p className="text-xs text-muted-foreground">We fill in the type and questions. You can change anything after.</p>
+                        <Button size="sm" onClick={handleDescribe} disabled={describing} className="gap-1.5 shrink-0 neu-pressable">
+                          {describing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Reading...</> : <><Wand2 className="w-3.5 h-3.5" />Build it</>}
+                        </Button>
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" role="radiogroup" aria-label="Signup flow">
                       {SIGNUP_FLOWS.map((option) => (
                         <OptionTile key={option.value} group="flow" selected={signupType === option.value} onSelect={() => chooseSignupType(option.value)}>
@@ -522,6 +537,41 @@ export default function LandingPage() {
                       fieldClass={fieldClass} labelClass={labelClass} defaultDate={eventDate} alwaysOn={isSlotForm} />
                   </>
                 )}
+                {step.id === 'fields' && (
+                  <div className="space-y-3">
+                    {customFields.length === 0 && (
+                      <p className="text-sm text-muted-foreground">
+                        The standard contact fields are added for you. Add anything else you need to ask.
+                      </p>
+                    )}
+                    {customFields.map((field, index) => (
+                      <div key={field.id} className="flex items-center gap-3 rounded-xl neu-raised-sm px-3 py-2.5">
+                        <GripVertical className="w-4 h-4 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{field.label}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {FIELD_TYPE_LABELS[field.type] || field.type}
+                            {field.required ? ' · required' : ''}
+                            {field.options?.length ? ` · ${field.options.length} options` : ''}
+                          </p>
+                        </div>
+                        <Button variant="ghost" size="sm" className="h-8 px-2" aria-label={`Edit ${field.label}`}
+                          onClick={() => { setEditingField(field); setFieldIsNew(false); setFieldDialogOpen(true); }}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-8 px-2" aria-label={`Remove ${field.label}`}
+                          onClick={() => setCustomFields(customFields.filter((_, i) => i !== index))}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button variant="outline" className="w-full gap-1.5 neu-pressable"
+                      onClick={() => { setEditingField(null); setFieldIsNew(true); setFieldDialogOpen(true); }}>
+                      <Plus className="w-4 h-4" /> Add a question
+                    </Button>
+                  </div>
+                )}
+
                 {step.id === 'hero' && (
                   <HeroPicker images={heroPool} value={heroImage} onChange={setHeroImage} />
                 )}
