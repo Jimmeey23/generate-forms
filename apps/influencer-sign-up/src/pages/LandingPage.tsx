@@ -3,10 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@project/components/ui/button';
 import { Input } from '@project/components/ui/input';
 import { Label } from '@project/components/ui/label';
-import { Loader2, ArrowRight, Sparkles, Zap, Share2, BarChart3, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle, Image as ImageIcon, Tag, CalendarClock } from 'lucide-react';
+import { Loader2, ArrowRight, ChevronLeft, Sparkles, Zap, Share2, BarChart3, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle, Image as ImageIcon, Tag, CalendarClock } from 'lucide-react';
 import { generateForm, getMomenceSessions, saveFormSlots, DEFAULT_SLOT_BOOKING, type MomenceSession, type SlotBooking } from '@/lib/api';
 import SlotWizard from '@/components/SlotWizard';
-import BuilderRail, { type RailSection } from '@/components/BuilderRail';
+import WizardSteps, { type WizardStep } from '@/components/WizardSteps';
 import HeroPicker from '@/components/HeroPicker';
 import { sortDrafts, toSlotInput, type SlotDraft } from '@/lib/slots';
 import { toast } from 'sonner';
@@ -83,7 +83,8 @@ export default function LandingPage() {
   // UTMs track the campaign names until the organiser edits one.
   const [utm, setUtm] = useState({ source: '', channel: '', campaign: '' });
   const [utmTouched, setUtmTouched] = useState(false);
-  const [activeSection, setActiveSection] = useState('type');
+  const [stepIndex, setStepIndex] = useState(0);
+  const [furthestStep, setFurthestStep] = useState(0);
   const [manualStudio, setManualStudio] = useState('');
   const [sessions, setSessions] = useState<StudioSession[]>([]);
   const [sessionsState, setSessionsState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -159,38 +160,47 @@ export default function LandingPage() {
   // One source of truth for the rail and the page body, so the two can never disagree.
   const isKids = signupType === 'kids';
   const isSlotForm = signupType === 'slots';
-  const sectionMeta: (RailSection & { hint: string })[] = [
-    { id: 'type', phase: 'Campaign', title: 'Form type', hint: 'What happens after someone signs up', done: true },
-    { id: 'campaign', phase: 'Campaign', title: 'Partner & event', hint: 'Whose name is on this form', done: Boolean(influencer.trim() || eventTitle.trim()) },
+  const sectionMeta: (WizardStep & { hint: string })[] = [
+    { id: 'type', title: 'Form type', hint: 'What happens after someone signs up', done: true },
+    { id: 'campaign', title: 'Partner & event', hint: 'Whose name is on this form', done: Boolean(influencer.trim() || eventTitle.trim()) },
     // A slot form's schedule is its subject, so it leads the Experience phase.
-    ...(isSlotForm ? [{ id: 'slots', phase: 'Experience', title: 'Time slots', hint: 'The schedule guests book from', done: slotDrafts.length > 0, warn: slotDrafts.length === 0 } as RailSection & { hint: string }] : []),
-    { id: 'studios', phase: 'Experience', title: 'Studios', hint: 'Where guests can go', done: studios.length > 0 },
-    ...(isKids || isSlotForm ? [] : [{ id: 'formats', phase: 'Experience', title: 'Class formats', hint: 'Shapes the copy, images and class list', done: effectiveFormats.length > 0, optional: true } as RailSection & { hint: string }]),
+    ...(isSlotForm ? [{ id: 'slots', title: 'Time slots', hint: 'The schedule guests book from', done: slotDrafts.length > 0, warn: slotDrafts.length === 0 } as WizardStep & { hint: string }] : []),
+    { id: 'studios', title: 'Studios', hint: 'Where guests can go', done: studios.length > 0 },
+    ...(isKids || isSlotForm ? [] : [{ id: 'formats', title: 'Class formats', hint: 'Shapes the copy, images and class list', done: effectiveFormats.length > 0, optional: true } as WizardStep & { hint: string }]),
     // Slot forms never touch Momence classes.
-    ...(isSlotForm ? [] : [{ id: 'booking', phase: 'Experience', title: 'Class booking', hint: signupType === 'paid' ? 'Required for paid signups' : 'Optional auto-booking', done: signupType === 'paid' ? paidReady : Boolean(sessionId), optional: signupType !== 'paid', warn: signupType === 'paid' && !paidReady } as RailSection & { hint: string }]),
-    ...(isSlotForm ? [] : [{ id: 'slots', phase: 'Experience', title: 'Time slots', hint: 'Let guests book a slot with its own cap', done: slotBooking.enabled && slotDrafts.length > 0, optional: !slotBooking.enabled, warn: slotBooking.enabled && slotDrafts.length === 0 } as RailSection & { hint: string }]),
-    { id: 'hero', phase: 'Appearance & tracking', title: 'Hero image', hint: 'The image that leads the form', done: Boolean(heroImage), optional: true },
-    { id: 'tracking', phase: 'Appearance & tracking', title: 'Limits & tracking', hint: 'Sign-up cap and UTM tags', done: Boolean(submissionLimit || utmTouched), optional: true },
+    ...(isSlotForm ? [] : [{ id: 'booking', title: 'Class booking', hint: signupType === 'paid' ? 'Required for paid signups' : 'Optional auto-booking', done: signupType === 'paid' ? paidReady : Boolean(sessionId), optional: signupType !== 'paid', warn: signupType === 'paid' && !paidReady } as WizardStep & { hint: string }]),
+    ...(isSlotForm ? [] : [{ id: 'slots', title: 'Time slots', hint: 'Let guests book a slot with its own cap', done: slotBooking.enabled && slotDrafts.length > 0, optional: !slotBooking.enabled, warn: slotBooking.enabled && slotDrafts.length === 0 } as WizardStep & { hint: string }]),
+    { id: 'hero', title: 'Hero image', hint: 'The image that leads the form', done: Boolean(heroImage), optional: true },
+    { id: 'tracking', title: 'Limits & tracking', hint: 'Sign-up cap and UTM tags', done: Boolean(submissionLimit || utmTouched), optional: true },
   ];
-  const sectionIds = sectionMeta.map((section) => section.id).join(',');
+  // The review step always closes the wizard.
+  const steps: (WizardStep & { hint: string })[] = [
+    ...sectionMeta,
+    { id: 'review', title: 'Review', hint: 'Check everything, then create the form', done: canGenerate },
+  ];
+  const stepCount = steps.length;
+  // Switching form type can remove steps, so never leave the index past the end.
+  const safeIndex = Math.min(stepIndex, stepCount - 1);
+  const step = steps[safeIndex];
 
-  // Highlight whichever section is nearest the top of the viewport.
-  useEffect(() => {
-    const ids = sectionIds.split(',');
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries.filter((entry) => entry.isIntersecting)
-          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-        if (visible) setActiveSection(visible.target.id.replace('section-', ''));
-      },
-      { rootMargin: '-96px 0px -55% 0px', threshold: 0 },
-    );
-    for (const id of ids) {
-      const element = document.getElementById(`section-${id}`);
-      if (element) observer.observe(element);
-    }
-    return () => observer.disconnect();
-  }, [sectionIds]);
+  // Each step only blocks on what it is responsible for.
+  const stepBlocker = (id: string): string => {
+    if (id === 'campaign' && !influencer.trim() && !eventTitle.trim()) return 'Enter a partner name or an event title to continue.';
+    if (id === 'studios' && !studios.length) return 'Choose at least one studio.';
+    if (id === 'booking' && !paidReady) return 'Paid signups need a Momence class.';
+    if (id === 'slots' && !slotsReady) return 'Add at least one time slot.';
+    return '';
+  };
+  const blocker = stepBlocker(step.id);
+
+  const goTo = (index: number) => {
+    const next = Math.max(0, Math.min(index, stepCount - 1));
+    setStepIndex(next);
+    setFurthestStep((current) => Math.max(current, next));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const goNext = () => { if (!blocker) goTo(safeIndex + 1); };
+  const goBack = () => goTo(safeIndex - 1);
 
   // Slot Bookings always books slots; every other flow leaves the toggle where it was.
   const chooseSignupType = (next: SignupType) => {
@@ -201,9 +211,9 @@ export default function LandingPage() {
       setFormats([]);
     }
   };
-
   const jumpTo = (id: string) => {
-    document.getElementById(`section-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const index = steps.findIndex((item) => item.id === id);
+    if (index >= 0) goTo(index);
   };
 
   const handleGenerate = async () => {
@@ -279,351 +289,317 @@ export default function LandingPage() {
       <main className="relative z-10 container mx-auto px-4 md:px-6 py-10 md:py-14">
         <div className="max-w-7xl mx-auto">
           {/* Header */}
-          <motion.header initial="hidden" animate="show" variants={stagger}
-            className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 mb-8 md:mb-10">
-            <div>
-              <motion.div variants={rise} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-4 text-[11px] font-medium tracking-wider uppercase"
-                style={{ background: 'hsl(var(--primary) / 0.1)', border: '1px solid hsl(var(--primary) / 0.2)', color: 'hsl(var(--primary))' }}>
-                <motion.span animate={{ rotate: [0, 18, -8, 0] }} transition={{ duration: 2.4, repeat: Infinity, repeatDelay: 2 }}><Sparkles className="w-3 h-3" /></motion.span> Instant AI Generation
-              </motion.div>
-              <motion.h1 variants={stagger} className="text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight leading-[1.1]" style={{ fontFamily: "'Playfair Display', serif" }}>
-                {['Create', 'branded'].map((word) => <motion.span key={word} variants={rise} className="inline-block mr-[0.25em]">{word}</motion.span>)}
-                {['sign-up', 'forms'].map((word) => (
-                  <motion.span key={word} variants={rise} className="inline-block mr-[0.25em] bg-clip-text text-transparent bg-[length:200%_auto]"
-                    style={{ backgroundImage: 'linear-gradient(135deg, #a855f7, #06b6d4, #a855f7)' }}
-                    animate={{ backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'] }} transition={{ backgroundPosition: { duration: 6, repeat: Infinity, ease: 'linear' } }}>
-                    {word}
-                  </motion.span>
-                ))}
-              </motion.h1>
-            </div>
-            <motion.p variants={rise} className="text-muted-foreground text-sm md:text-base max-w-md leading-relaxed">
-              Enter influencer or event details and get a fully branded Physique 57 form with Momence integration & UTM tracking.
-            </motion.p>
-          </motion.header>
+          <header className="max-w-3xl mx-auto mb-6 text-center">
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
+              Create a sign-up form
+            </h1>
+            <p className="text-muted-foreground text-sm mt-1.5">
+              Answer a few questions and get a branded Physique 57 form with Momence tracking.
+            </p>
+          </header>
 
-          {/* Builder */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-            {/* Section index */}
-            <div className="hidden lg:block lg:col-span-2">
-              <div className="sticky top-6 rounded-2xl neu-raised p-4">
-                <BuilderRail sections={sectionMeta} activeId={activeSection} onJump={jumpTo} />
-              </div>
+          {/* Wizard */}
+          <div className="max-w-3xl mx-auto">
+            <div className="mb-5">
+              <WizardSteps steps={steps} current={safeIndex} furthest={furthestStep} onJump={goTo} />
             </div>
 
-            {/* Form builder */}
-            <motion.section initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.6, ease: EASE }}
-              className="lg:col-span-6 rounded-2xl neu-raised overflow-hidden">
-              <motion.div className="h-1 bg-[length:200%_100%]" style={{ backgroundImage: 'linear-gradient(90deg, #a855f7, #06b6d4, #f97316, #a855f7)' }}
-                animate={{ backgroundPosition: ['0% 0%', '200% 0%'] }} transition={{ duration: 8, repeat: Infinity, ease: 'linear' }} />
-              <div className="p-5 md:p-7 space-y-9">
-                {sectionMeta.map((meta, index) => (
-                  <Section key={meta.id} id={meta.id} index={index + 1} title={meta.title} hint={meta.hint}
-                    action={meta.id === 'studios'
-                      ? <SelectAll clearLabel="Reset" allSelected={studios.length === ALL_STUDIOS.length} onToggle={(all) => setStudios(all ? [...ALL_STUDIOS] : [ALL_STUDIOS[0]])} />
-                      : meta.id === 'formats'
-                        ? <SelectAll allSelected={availableFormats.every((format) => effectiveFormats.includes(format))} onToggle={(all) => setFormats(all ? [...availableFormats] : [])} />
-                        : undefined}>
-                    {meta.id === 'type' && (
-                      <>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" role="radiogroup" aria-label="Signup flow">
-                          {SIGNUP_FLOWS.map((option) => (
-                            <OptionTile key={option.value} group="flow" selected={signupType === option.value} onSelect={() => chooseSignupType(option.value)}>
-                              <option.icon className="w-4 h-4 mb-3" style={{ color: signupType === option.value ? '#a855f7' : undefined }} />
-                              <span className="block text-sm font-semibold">{option.label}</span>
-                              <span className="block text-xs text-muted-foreground mt-0.5">{option.desc}</span>
-                            </OptionTile>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                    {meta.id === 'campaign' && (
-                      <>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <Label className={labelClass}>Influencer / Partner Name *</Label>
-                            <Input value={influencer} onChange={(e) => setInfluencer(e.target.value)} placeholder="e.g. Maia Sethna, Shilpa Shetty" className={fieldClass} />
-                          </div>
-                          <div>
-                            <Label className={labelClass}>Event Title</Label>
-                            <Input value={eventTitle} onChange={(e) => setEventTitle(e.target.value)} placeholder="e.g. Open House, Exclusive Barre Class" className={fieldClass} />
-                          </div>
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <Label htmlFor="event-date" className={labelClass}>Event date</Label>
-                              <Input id="event-date" type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className={`${fieldClass}`} />
-                            </div>
-                            <div>
-                              <Label htmlFor="event-time" className={labelClass}>Start time</Label>
-                              <Input id="event-time" type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} className={`${fieldClass}`} />
-                            </div>
-                          </div>
-                          <div>
-                            <Label htmlFor="event-venue" className={labelClass}>Venue details</Label>
-                            <div className="relative">
-                              <MapPin className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                              <Input id="event-venue" value={eventVenue} onChange={(e) => setEventVenue(e.target.value)} placeholder="Defaults to the studio · e.g. Rooftop, Supreme HQ" className={`${fieldClass} pl-9`} />
-                            </div>
-                          </div>
-                        </div>
-                      </>
-                    )}
-                    {meta.id === 'studios' && (
-                      <>
-                        <div className="space-y-4">
-                          {STUDIOS_BY_CITY.map((group) => (
-                            <div key={group.city}>
-                              <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-2">
-                                <MapPin className="w-3 h-3" /> {group.city}
-                              </span>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" role="group" aria-label={`${group.city} studios`}>
-                                {group.studios.map((studio) => (
-                                  <OptionTile key={studio} group="studio" multi selected={studios.includes(studio)}
-                                    onSelect={() => setStudios((current) => (current.includes(studio) && current.length === 1 ? current : toggle(current, studio)))}>
-                                    <span className="block text-sm font-semibold leading-snug">{studio.replace(/, Bengaluru$/, '')}</span>
-                                  </OptionTile>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                    {meta.id === 'formats' && (
-                      <>
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" role="group" aria-label="Class formats">
-                          <OptionTile group="format" multi selected={effectiveFormats.length === 0} onSelect={() => setFormats([])}>
-                            <Shuffle className="w-4 h-4 mb-3 text-muted-foreground" />
-                            <span className="block text-sm font-semibold">Any format</span>
-                            <span className="block text-xs text-muted-foreground mt-0.5">Guest picks in the form</span>
-                          </OptionTile>
-                          {CLASS_FORMATS.map((option) => {
-                            const unavailable = !availableFormats.includes(option.value);
-                            return (
-                              <OptionTile key={option.value} group="format" multi selected={effectiveFormats.includes(option.value)} onSelect={() => setFormats((current) => toggle(current.filter((format) => availableFormats.includes(format)), option.value))} disabled={unavailable} flush>
-                                <div className="relative h-16 overflow-hidden rounded-t-[11px]">
-                                  <img src={HERO_IMAGES[option.images[0]]} alt="" className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                                  <div className="absolute inset-0 bg-gradient-to-t from-card via-card/40 to-transparent" />
-                                </div>
-                                <div className="px-4 pb-4 -mt-2 relative">
-                                  <span className="block text-sm font-semibold">{option.value}</span>
-                                  <span className="block text-xs text-muted-foreground mt-0.5">{unavailable ? 'Not at these studios' : option.desc}</span>
-                                </div>
-                              </OptionTile>
-                            );
-                          })}
-                        </div>
-                      </>
-                    )}
-                    {meta.id === 'booking' && (
-                      <>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                          <div>
-                            <Label htmlFor="momence-class" className={labelClass}>Momence class {signupType === 'paid' ? '*' : '(optional)'}</Label>
-                            {manualBooking ? (
-                              <div className="flex gap-2">
-                                <Input id="momence-class" inputMode="numeric" value={manualId} onChange={(e) => setManualId(e.target.value.replace(/\D/g, ''))}
-                                  placeholder="Couldn't load classes · enter session ID" className={fieldClass} />
-                                {studios.length > 1 && (
-                                  <select aria-label="Studio for this class" value={sessionStudio} onChange={(e) => setManualStudio(e.target.value)}
-                                    className={`${fieldClass} w-40 shrink-0 rounded-md border px-2`}>
-                                    {studios.map((studio) => <option key={studio} value={studio}>{shortStudio(studio)}</option>)}
-                                  </select>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="relative">
-                                <select id="momence-class" value={selectedKey} onChange={(e) => chooseSession(e.target.value)} disabled={sessionsState === 'loading'}
-                                  className={`${fieldClass} w-full rounded-md border px-3 pr-9 appearance-none disabled:opacity-60`}>
-                                  <option value="">{sessionsState === 'loading' ? 'Loading classes from Momence…' : sessions.length ? (signupType === 'paid' ? 'Select a class' : 'No pre-booking · guest picks later') : 'No upcoming classes found'}</option>
-                                  {Object.entries(sessionsByDay).map(([day, items]) => (
-                                    <optgroup key={day} label={day}>
-                                      {items.map((session) => (
-                                        <option key={sessionKey(session)} value={sessionKey(session)} disabled={session.spotsLeft === 0}>
-                                          {session.hosted ? '★ Hosted · ' : ''}{sessionTime(session)} · {session.name}{studios.length > 1 ? ` · ${shortStudio(session.studio)}` : ''}{session.teacherName ? ` · ${session.teacherName}` : ''}{session.spotsLeft != null ? ` · ${session.spotsLeft === 0 ? 'Full' : `${session.spotsLeft} left`}` : ''}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  ))}
-                                </select>
-                                {sessionsState === 'loading'
-                                  ? <Loader2 className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
-                                  : <ChevronRight className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rotate-90 text-muted-foreground" />}
-                              </div>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground leading-relaxed md:pt-7">
-                            {manualBooking
-                              ? 'Momence classes could not be loaded right now. You can still paste a session ID.'
-                              : `Next 30 days of ${effectiveFormats.length ? effectiveFormats.join(' & ') : 'every'} classes at ${studios.length > 1 ? `all ${studios.length} selected studios` : shortStudio(studios[0])}.`}
-                            {' '}
-                            {studios.length > 1
-                              ? 'Guests who choose this class’s studio are auto-booked into it; guests at the other studios pick a class after signing up.'
-                              : 'Guests are auto-booked into the chosen class after signup. Selecting a class pins the form to its studio and format.'}
-                          </p>
-                        </div>
-                      </>
-                    )}
-                    {meta.id === 'slots' && (
-                      <>
-                        <SlotWizard booking={slotBooking} onBookingChange={setSlotBooking} slots={slotDrafts} onSlotsChange={setSlotDrafts}
-                          fieldClass={fieldClass} labelClass={labelClass} defaultDate={eventDate} alwaysOn={isSlotForm} />
-                      </>
-                    )}
-                    {meta.id === 'hero' && (
-                      <HeroPicker images={heroPool} value={heroImage} onChange={setHeroImage} />
-                    )}
-                    {meta.id === 'tracking' && (
-                      <div className="space-y-5">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                          <div>
-                            <Label htmlFor="submission-limit" className={labelClass}>Sign-up limit</Label>
-                            <Input id="submission-limit" inputMode="numeric" value={submissionLimit}
-                              onChange={(e) => setSubmissionLimit(e.target.value.replace(/\D/g, '').slice(0, 5))}
-                              placeholder="Leave blank for unlimited" className={fieldClass} />
-                          </div>
-                          <p className="text-xs text-muted-foreground leading-relaxed md:pt-7">
-                            {submissionLimit
-                              ? `The form stops accepting responses after ${submissionLimit} sign-ups.`
-                              : 'The form accepts responses until you unpublish it.'}
-                          </p>
-                        </div>
+            <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }}
+              className="rounded-2xl neu-raised overflow-hidden">
+              <div className="h-1" style={{ background: 'linear-gradient(90deg, #8b5cf6, #0891b2)' }} />
 
+              <div className="p-5 md:p-8">
+                <header className="mb-6">
+                  <p className="text-[11px] uppercase tracking-wider font-bold text-muted-foreground mb-1">
+                    Step {safeIndex + 1} of {stepCount}
+                  </p>
+                  <h2 className="text-xl font-semibold">{step.title}</h2>
+                  <p className="text-sm text-muted-foreground mt-1">{step.hint}</p>
+                </header>
+
+                {/* Only the current step is on screen. */}
+                <AnimatePresence mode="wait">
+                  <motion.div key={step.id}
+                    initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}
+                    transition={{ duration: 0.22, ease: EASE }}>
+                    {step.id === 'studios' && (
+                      <div className="flex justify-end mb-3">
+                        <SelectAll clearLabel="Reset" allSelected={studios.length === ALL_STUDIOS.length} onToggle={(all) => setStudios(all ? [...ALL_STUDIOS] : [ALL_STUDIOS[0]])} />
+                      </div>
+                    )}
+                    {step.id === 'formats' && (
+                      <div className="flex justify-end mb-3">
+                        <SelectAll allSelected={availableFormats.every((format) => effectiveFormats.includes(format))} onToggle={(all) => setFormats(all ? [...availableFormats] : [])} />
+                      </div>
+                    )}
+                {step.id === 'type' && (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" role="radiogroup" aria-label="Signup flow">
+                      {SIGNUP_FLOWS.map((option) => (
+                        <OptionTile key={option.value} group="flow" selected={signupType === option.value} onSelect={() => chooseSignupType(option.value)}>
+                          <option.icon className="w-4 h-4 mb-3" style={{ color: signupType === option.value ? '#a855f7' : undefined }} />
+                          <span className="block text-sm font-semibold">{option.label}</span>
+                          <span className="block text-xs text-muted-foreground mt-0.5">{option.desc}</span>
+                        </OptionTile>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {step.id === 'campaign' && (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label className={labelClass}>Influencer / Partner Name *</Label>
+                        <Input value={influencer} onChange={(e) => setInfluencer(e.target.value)} placeholder="e.g. Maia Sethna, Shilpa Shetty" className={fieldClass} />
+                      </div>
+                      <div>
+                        <Label className={labelClass}>Event Title</Label>
+                        <Input value={eventTitle} onChange={(e) => setEventTitle(e.target.value)} placeholder="e.g. Open House, Exclusive Barre Class" className={fieldClass} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-bold text-muted-foreground">
-                              <Tag className="w-3 h-3" /> UTM tags
-                            </span>
-                            {utmTouched && (
-                              <button type="button" onClick={() => { setUtmTouched(false); setUtm({ source: '', channel: '', campaign: '' }); }}
-                                className="text-[11px] font-semibold uppercase tracking-wider text-primary hover:opacity-70 transition-opacity">
-                                Back to automatic
-                              </button>
-                            )}
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            {UTM_FIELDS.map((utmField) => (
-                              <div key={utmField.key}>
-                                <Label htmlFor={`utm-${utmField.key}`} className={labelClass}>{utmField.label}</Label>
-                                <Input id={`utm-${utmField.key}`} value={effectiveUtm[utmField.key]}
-                                  onChange={(e) => { setUtmTouched(true); setUtm({ ...effectiveUtm, [utmField.key]: utmSlug(e.target.value) }); }}
-                                  placeholder={utmField.placeholder} className={fieldClass} />
-                              </div>
+                          <Label htmlFor="event-date" className={labelClass}>Event date</Label>
+                          <Input id="event-date" type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} className={`${fieldClass}`} />
+                        </div>
+                        <div>
+                          <Label htmlFor="event-time" className={labelClass}>Start time</Label>
+                          <Input id="event-time" type="time" value={eventTime} onChange={(e) => setEventTime(e.target.value)} className={`${fieldClass}`} />
+                        </div>
+                      </div>
+                      <div>
+                        <Label htmlFor="event-venue" className={labelClass}>Venue details</Label>
+                        <div className="relative">
+                          <MapPin className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                          <Input id="event-venue" value={eventVenue} onChange={(e) => setEventVenue(e.target.value)} placeholder="Defaults to the studio · e.g. Rooftop, Supreme HQ" className={`${fieldClass} pl-9`} />
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+                {step.id === 'studios' && (
+                  <>
+                    <div className="space-y-4">
+                      {STUDIOS_BY_CITY.map((group) => (
+                        <div key={group.city}>
+                          <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-2">
+                            <MapPin className="w-3 h-3" /> {group.city}
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" role="group" aria-label={`${group.city} studios`}>
+                            {group.studios.map((studio) => (
+                              <OptionTile key={studio} group="studio" multi selected={studios.includes(studio)}
+                                onSelect={() => setStudios((current) => (current.includes(studio) && current.length === 1 ? current : toggle(current, studio)))}>
+                                <span className="block text-sm font-semibold leading-snug">{studio.replace(/, Bengaluru$/, '')}</span>
+                              </OptionTile>
                             ))}
                           </div>
-                          <p className="text-xs text-muted-foreground leading-relaxed mt-2">
-                            {utmTouched
-                              ? 'Set by hand. Every submission is tagged with these.'
-                              : 'Built from the partner and event names as you type. Edit any field to take over.'}
-                          </p>
                         </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {step.id === 'formats' && (
+                  <>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" role="group" aria-label="Class formats">
+                      <OptionTile group="format" multi selected={effectiveFormats.length === 0} onSelect={() => setFormats([])}>
+                        <Shuffle className="w-4 h-4 mb-3 text-muted-foreground" />
+                        <span className="block text-sm font-semibold">Any format</span>
+                        <span className="block text-xs text-muted-foreground mt-0.5">Guest picks in the form</span>
+                      </OptionTile>
+                      {CLASS_FORMATS.map((option) => {
+                        const unavailable = !availableFormats.includes(option.value);
+                        return (
+                          <OptionTile key={option.value} group="format" multi selected={effectiveFormats.includes(option.value)} onSelect={() => setFormats((current) => toggle(current.filter((format) => availableFormats.includes(format)), option.value))} disabled={unavailable} flush>
+                            <div className="relative h-16 overflow-hidden rounded-t-[11px]">
+                              <img src={HERO_IMAGES[option.images[0]]} alt="" className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                              <div className="absolute inset-0 bg-gradient-to-t from-card via-card/40 to-transparent" />
+                            </div>
+                            <div className="px-4 pb-4 -mt-2 relative">
+                              <span className="block text-sm font-semibold">{option.value}</span>
+                              <span className="block text-xs text-muted-foreground mt-0.5">{unavailable ? 'Not at these studios' : option.desc}</span>
+                            </div>
+                          </OptionTile>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+                {step.id === 'booking' && (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                      <div>
+                        <Label htmlFor="momence-class" className={labelClass}>Momence class {signupType === 'paid' ? '*' : '(optional)'}</Label>
+                        {manualBooking ? (
+                          <div className="flex gap-2">
+                            <Input id="momence-class" inputMode="numeric" value={manualId} onChange={(e) => setManualId(e.target.value.replace(/\D/g, ''))}
+                              placeholder="Couldn't load classes · enter session ID" className={fieldClass} />
+                            {studios.length > 1 && (
+                              <select aria-label="Studio for this class" value={sessionStudio} onChange={(e) => setManualStudio(e.target.value)}
+                                className={`${fieldClass} w-40 shrink-0 rounded-md border px-2`}>
+                                {studios.map((studio) => <option key={studio} value={studio}>{shortStudio(studio)}</option>)}
+                              </select>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="relative">
+                            <select id="momence-class" value={selectedKey} onChange={(e) => chooseSession(e.target.value)} disabled={sessionsState === 'loading'}
+                              className={`${fieldClass} w-full rounded-md border px-3 pr-9 appearance-none disabled:opacity-60`}>
+                              <option value="">{sessionsState === 'loading' ? 'Loading classes from Momence…' : sessions.length ? (signupType === 'paid' ? 'Select a class' : 'No pre-booking · guest picks later') : 'No upcoming classes found'}</option>
+                              {Object.entries(sessionsByDay).map(([day, items]) => (
+                                <optgroup key={day} label={day}>
+                                  {items.map((session) => (
+                                    <option key={sessionKey(session)} value={sessionKey(session)} disabled={session.spotsLeft === 0}>
+                                      {session.hosted ? '★ Hosted · ' : ''}{sessionTime(session)} · {session.name}{studios.length > 1 ? ` · ${shortStudio(session.studio)}` : ''}{session.teacherName ? ` · ${session.teacherName}` : ''}{session.spotsLeft != null ? ` · ${session.spotsLeft === 0 ? 'Full' : `${session.spotsLeft} left`}` : ''}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ))}
+                            </select>
+                            {sessionsState === 'loading'
+                              ? <Loader2 className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+                              : <ChevronRight className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rotate-90 text-muted-foreground" />}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </Section>
-                ))}
-              </div>
-            </motion.section>
+                      <p className="text-xs text-muted-foreground leading-relaxed md:pt-7">
+                        {manualBooking
+                          ? 'Momence classes could not be loaded right now. You can still paste a session ID.'
+                          : `Next 30 days of ${effectiveFormats.length ? effectiveFormats.join(' & ') : 'every'} classes at ${studios.length > 1 ? `all ${studios.length} selected studios` : shortStudio(studios[0])}.`}
+                        {' '}
+                        {studios.length > 1
+                          ? 'Guests who choose this class’s studio are auto-booked into it; guests at the other studios pick a class after signing up.'
+                          : 'Guests are auto-booked into the chosen class after signup. Selecting a class pins the form to its studio and format.'}
+                      </p>
+                    </div>
+                  </>
+                )}
+                {step.id === 'slots' && (
+                  <>
+                    <SlotWizard booking={slotBooking} onBookingChange={setSlotBooking} slots={slotDrafts} onSlotsChange={setSlotDrafts}
+                      fieldClass={fieldClass} labelClass={labelClass} defaultDate={eventDate} alwaysOn={isSlotForm} />
+                  </>
+                )}
+                {step.id === 'hero' && (
+                  <HeroPicker images={heroPool} value={heroImage} onChange={setHeroImage} />
+                )}
+                {step.id === 'tracking' && (
+                  <div className="space-y-5">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                      <div>
+                        <Label htmlFor="submission-limit" className={labelClass}>Sign-up limit</Label>
+                        <Input id="submission-limit" inputMode="numeric" value={submissionLimit}
+                          onChange={(e) => setSubmissionLimit(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                          placeholder="Leave blank for unlimited" className={fieldClass} />
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed md:pt-7">
+                        {submissionLimit
+                          ? `The form stops accepting responses after ${submissionLimit} sign-ups.`
+                          : 'The form accepts responses until you unpublish it.'}
+                      </p>
+                    </div>
 
-            {/* Summary + preview */}
-            <motion.aside initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.6, ease: EASE }}
-              className="lg:col-span-4 space-y-5 lg:sticky lg:top-6 self-start">
-              <div className="rounded-2xl neu-raised p-5 md:p-6">
-                <div className="flex items-center gap-2 mb-5">
-                  <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#22c55e', boxShadow: '0 0 8px rgba(34,197,94,0.5)' }} />
-                  <span className="text-xs text-muted-foreground font-medium tracking-wide uppercase">New Form</span>
-                </div>
-                <dl className="grid grid-cols-2 gap-3 mb-6">
-                  <SummaryItem label="Partner" value={influencer.trim() || '—'} span />
-                  <SummaryItem label="Event" value={eventTitle.trim() || '—'} span />
-                  <SummaryItem label="Flow" value={flow.label} />
-                  <SummaryItem label="City" value={cities.join(' + ') || '—'} />
-                  <SummaryItem label="Studios" value={studioSummary} span />
-                  <SummaryItem label="Formats" value={effectiveFormats.join(', ') || 'Any'} span />
-                  <SummaryItem label="When" value={eventDate ? new Date(`${eventDate}T${eventTime || '00:00'}`).toLocaleString('en-IN', { day: 'numeric', month: 'short', ...(eventTime ? { hour: 'numeric', minute: '2-digit' } : {}) }) : '—'} />
-                  <SummaryItem label="Limit" value={submissionLimit ? `${submissionLimit} sign-ups` : 'Unlimited'} />
-                  <SummaryItem label="Hero" value={heroImage ? 'Chosen' : 'Auto'} />
-                  <SummaryItem label="Slots" value={slotBooking.enabled ? `${slotDrafts.length} · ${slotDrafts.reduce((sum, slot) => sum + (Number(slot.capacity) || 0), 0)} spots` : 'Off'} />
-                  <SummaryItem label="Class" value={selectedSession ? `${sessionDay(selectedSession)} ${sessionTime(selectedSession)}` : sessionId || (signupType === 'paid' ? 'Required' : 'None')} />
-                </dl>
-                <motion.div whileHover={canGenerate ? { scale: 1.02 } : undefined} whileTap={canGenerate ? { scale: 0.98 } : undefined}>
-                  <Button onClick={handleGenerate} disabled={loading || !canGenerate}
-                    className="relative w-full h-12 gap-2 rounded-xl text-sm tracking-wider uppercase font-extrabold text-white neu-pressable overflow-hidden disabled:opacity-50"
-                    size="lg" style={{ background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)', border: 'none' }}>
-                    {canGenerate && !loading && (
-                      <motion.span aria-hidden className="absolute inset-y-0 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/25 to-transparent"
-                        initial={{ left: '-40%' }} animate={{ left: '140%' }} transition={{ duration: 1.6, repeat: Infinity, repeatDelay: 1.2, ease: 'easeInOut' }} />
-                    )}
-                    <span className="relative flex items-center gap-2">
-                      {loading ? <><Loader2 className="w-4 h-4 animate-spin" />Generating...</> : <>Generate Form<ArrowRight className="w-4 h-4" /></>}
-                    </span>
-                  </Button>
-                </motion.div>
-                <p className="text-center text-[10px] mt-3 tracking-wider uppercase text-foreground opacity-[0.35]">
-                  Powered by AI · Instant generation
-                </p>
-              </div>
-              <div className="rounded-2xl neu-raised p-5">
-                {heroImage ? (
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em] text-muted-foreground/50 font-medium">
-                        <ImageIcon className="w-3 h-3" /> Hero
-                      </span>
-                      <button type="button" onClick={() => jumpTo('hero')}
-                        className="text-[10px] font-semibold uppercase tracking-wider text-primary hover:opacity-70 transition-opacity">
-                        Change
-                      </button>
-                    </div>
-                    <div className="relative w-full aspect-[16/10] rounded-xl overflow-hidden shadow-2xl"
-                      style={{ border: '1px solid hsl(var(--border))' }}>
-                      <img src={heroImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-black/5" />
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em] text-muted-foreground/50 font-medium">
-                        <ImageIcon className="w-3 h-3" /> Hero
-                      </span>
-                      <button type="button" onClick={() => jumpTo('hero')}
-                        className="text-[10px] font-semibold uppercase tracking-wider text-primary hover:opacity-70 transition-opacity">
-                        Choose
-                      </button>
-                    </div>
-                    <div className="relative w-full aspect-[16/10] rounded-xl overflow-hidden"
-                      style={{ border: '1px dashed hsl(var(--border))' }}>
-                      <img src={heroPool[0]} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30" />
-                      <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
-                        <p className="text-xs text-muted-foreground leading-relaxed">
-                          We pick one of {heroPool.length} images unless you choose.
-                        </p>
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-bold text-muted-foreground">
+                          <Tag className="w-3 h-3" /> UTM tags
+                        </span>
+                        {utmTouched && (
+                          <button type="button" onClick={() => { setUtmTouched(false); setUtm({ source: '', channel: '', campaign: '' }); }}
+                            className="text-[11px] font-semibold uppercase tracking-wider text-primary hover:opacity-70 transition-opacity">
+                            Back to automatic
+                          </button>
+                        )}
                       </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        {UTM_FIELDS.map((utmField) => (
+                          <div key={utmField.key}>
+                            <Label htmlFor={`utm-${utmField.key}`} className={labelClass}>{utmField.label}</Label>
+                            <Input id={`utm-${utmField.key}`} value={effectiveUtm[utmField.key]}
+                              onChange={(e) => { setUtmTouched(true); setUtm({ ...effectiveUtm, [utmField.key]: utmSlug(e.target.value) }); }}
+                              placeholder={utmField.placeholder} className={fieldClass} />
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed mt-2">
+                        {utmTouched
+                          ? 'Set by hand. Every submission is tagged with these.'
+                          : 'Built from the partner and event names as you type. Edit any field to take over.'}
+                      </p>
                     </div>
                   </div>
                 )}
-              </div>
-            </motion.aside>
 
-            {/* Features */}
-            {[
-              { icon: <Zap className="w-5 h-5" />, title: 'Instant Forms', desc: 'Enter influencer/event details — get a branded form with all required fields, hero images & layouts.', accent: '#a855f7' },
-              { icon: <Share2 className="w-5 h-5" />, title: 'Momence Integration', desc: 'Every submission pushes leads to Momence with full UTM tracking for Mumbai & Bengaluru studios.', accent: '#06b6d4' },
-              { icon: <BarChart3 className="w-5 h-5" />, title: 'Track Everything', desc: 'View every submission with full details — name, email, phone, center, class type & UTM data.', accent: '#f97316' },
-            ].map((f, i) => (
-              <motion.div key={f.title} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 + i * 0.1, duration: 0.6, ease: EASE }}
-                whileHover={{ y: -4 }}
-                className="lg:col-span-4 flex gap-4 p-5 rounded-2xl neu-raised-sm">
-                <div className="w-10 h-10 shrink-0 rounded-xl flex items-center justify-center" style={{ background: `${f.accent}15`, color: f.accent }}>
-                  {f.icon}
-                </div>
-                <div>
-                  <h3 className="font-semibold mb-1 text-sm">{f.title}</h3>
-                  <p className="text-muted-foreground text-sm leading-relaxed">{f.desc}</p>
-                </div>
-              </motion.div>
-            ))}
+                    {step.id === 'review' && (
+                      <div className="space-y-5">
+                        <dl className="grid grid-cols-2 gap-3">
+                          <SummaryItem label="Partner" value={influencer.trim() || '—'} span />
+                          <SummaryItem label="Event" value={eventTitle.trim() || '—'} span />
+                          <SummaryItem label="Form type" value={flow.label} />
+                          <SummaryItem label="City" value={cities.join(' + ') || '—'} />
+                          <SummaryItem label="Studios" value={studioSummary} span />
+                          {!isSlotForm && <SummaryItem label="Formats" value={effectiveFormats.join(', ') || 'Any'} span />}
+                          <SummaryItem label="When" value={eventDate ? new Date(`${eventDate}T${eventTime || '00:00'}`).toLocaleString('en-IN', { day: 'numeric', month: 'short', ...(eventTime ? { hour: 'numeric', minute: '2-digit' } : {}) }) : '—'} />
+                          <SummaryItem label="Limit" value={submissionLimit ? `${submissionLimit} sign-ups` : 'Unlimited'} />
+                          <SummaryItem label="Hero" value={heroImage ? 'Chosen' : 'Auto'} />
+                          <SummaryItem label="Slots" value={slotBooking.enabled || isSlotForm ? `${slotDrafts.length} · ${slotDrafts.reduce((sum, slot) => sum + (Number(slot.capacity) || 0), 0)} spots` : 'Off'} />
+                          {!isSlotForm && <SummaryItem label="Class" value={selectedSession ? `${sessionDay(selectedSession)} ${sessionTime(selectedSession)}` : sessionId || (signupType === 'paid' ? 'Required' : 'None')} span />}
+                        </dl>
+
+                        <div className="rounded-xl neu-inset p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground font-medium">Hero</span>
+                            <button type="button" onClick={() => jumpTo('hero')}
+                              className="text-[10px] font-semibold uppercase tracking-wider text-primary hover:opacity-70 transition-opacity">
+                              {heroImage ? 'Change' : 'Choose'}
+                            </button>
+                          </div>
+                          <div className="relative w-full aspect-[16/6] rounded-lg overflow-hidden">
+                            <img src={heroImage || heroPool[0]} alt=""
+                              className="absolute inset-0 w-full h-full object-cover" style={{ opacity: heroImage ? 1 : 0.3 }} />
+                            {!heroImage && (
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <p className="text-xs text-muted-foreground">We pick one of {heroPool.length} images unless you choose.</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <motion.div whileHover={canGenerate ? { scale: 1.01 } : undefined} whileTap={canGenerate ? { scale: 0.99 } : undefined}>
+                          <Button onClick={handleGenerate} disabled={loading || !canGenerate}
+                            className="relative w-full h-12 gap-2 rounded-xl text-sm tracking-wider uppercase font-extrabold text-white neu-pressable overflow-hidden disabled:opacity-50"
+                            size="lg" style={{ background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)', border: 'none' }}>
+                            <span className="relative flex items-center gap-2">
+                              {loading ? <><Loader2 className="w-4 h-4 animate-spin" />Creating your form...</> : <>Create form<ArrowRight className="w-4 h-4" /></>}
+                            </span>
+                          </Button>
+                        </motion.div>
+                        {!canGenerate && (
+                          <p className="text-center text-xs text-muted-foreground">
+                            Some steps still need attention. Use the steps above to go back.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+
+              {/* Step controls */}
+              <div className="flex items-center justify-between gap-3 border-t border-border px-5 md:px-8 py-4">
+                <Button variant="ghost" onClick={goBack} disabled={safeIndex === 0} className="gap-1.5">
+                  <ChevronLeft className="w-4 h-4" /> Back
+                </Button>
+                <p className="text-xs text-center min-w-0 flex-1" style={{ color: blocker ? 'hsl(28 85% 40%)' : 'hsl(var(--muted-foreground))' }}>
+                  {blocker || (step.id === 'review' ? 'Ready to create' : `${stepCount - safeIndex - 1} step${stepCount - safeIndex - 1 === 1 ? '' : 's'} to go`)}
+                </p>
+                {step.id === 'review' ? <span className="w-[86px]" /> : (
+                  <Button onClick={goNext} disabled={Boolean(blocker)} className="gap-1.5 neu-pressable">
+                    Next <ArrowRight className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+            </motion.section>
           </div>
+
         </div>
       </main>
 
@@ -638,19 +614,6 @@ export default function LandingPage() {
   );
 }
 
-function Section({ id, index, title, hint, action, children }: { id: string; index: number; title: string; hint: string; action?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <section id={`section-${id}`} className="scroll-mt-24">
-      <div className="flex items-baseline gap-3 mb-4 pb-3 border-b border-border/30">
-        <span className="text-xs font-bold tabular-nums" style={{ color: 'hsl(var(--primary))' }}>{String(index).padStart(2, '0')}</span>
-        <h2 className="text-sm font-semibold uppercase tracking-wider">{title}</h2>
-        <span className="ml-auto text-xs text-muted-foreground/70 hidden sm:inline text-right">{hint}</span>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
 
 function OptionTile({ group, selected, onSelect, disabled, flush, multi, children }: { group: string; selected: boolean; onSelect: () => void; disabled?: boolean; flush?: boolean; multi?: boolean; children: React.ReactNode }) {
   return (
