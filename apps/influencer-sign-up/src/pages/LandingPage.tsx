@@ -170,9 +170,8 @@ export default function LandingPage() {
   const cities = STUDIOS_BY_CITY.filter((group) => group.studios.some((studio) => studios.includes(studio))).map((group) => group.city);
   const studioSummary = studios.length === ALL_STUDIOS.length ? 'All studios' : studios.length === 1 ? studios[0] : `${studios.length} studios`;
   const flow = SIGNUP_FLOWS.find((option) => option.value === signupType)!;
-  const paidReady = signupType !== 'paid' || /^\d+$/.test(sessionId);
   const slotsReady = (!slotBooking.enabled && signupType !== 'slots') || slotDrafts.length > 0;
-  const canGenerate = Boolean(influencer.trim() || eventTitle.trim()) && studios.length > 0 && paidReady && slotsReady;
+  const canGenerate = Boolean(influencer.trim() || eventTitle.trim()) && studios.length > 0 && slotsReady;
 
   // One source of truth for the rail and the page body, so the two can never disagree.
   const isKids = signupType === 'kids';
@@ -185,7 +184,7 @@ export default function LandingPage() {
     { id: 'studios', title: 'Studios', hint: 'Where guests can go', done: studios.length > 0 },
     ...(isKids || isSlotForm ? [] : [{ id: 'formats', title: 'Class formats', hint: 'Shapes the copy, images and class list', done: effectiveFormats.length > 0, optional: true } as WizardStep & { hint: string }]),
     // Slot forms never touch Momence classes.
-    ...(isSlotForm ? [] : [{ id: 'booking', title: 'Class booking', hint: signupType === 'paid' ? 'Required for paid signups' : 'Optional auto-booking', done: signupType === 'paid' ? paidReady : Boolean(sessionId), optional: signupType !== 'paid', warn: signupType === 'paid' && !paidReady } as WizardStep & { hint: string }]),
+    ...(isSlotForm ? [] : [{ id: 'booking', title: 'Class booking', hint: 'Optional · guests pick a class after they sign up', done: Boolean(sessionId), optional: true } as WizardStep & { hint: string }]),
     ...(isSlotForm ? [] : [{ id: 'slots', title: 'Time slots', hint: 'Let guests book a slot with its own cap', done: slotBooking.enabled && slotDrafts.length > 0, optional: !slotBooking.enabled, warn: slotBooking.enabled && slotDrafts.length === 0 } as WizardStep & { hint: string }]),
     { id: 'fields', title: 'Extra questions', hint: 'Add your own fields on top of the standard ones', done: customFields.length > 0, optional: true },
     { id: 'hero', title: 'Hero image', hint: 'The image that leads the form', done: Boolean(heroImage), optional: true },
@@ -205,7 +204,6 @@ export default function LandingPage() {
   const stepBlocker = (id: string): string => {
     if (id === 'campaign' && !influencer.trim() && !eventTitle.trim()) return 'Enter a partner name or an event title to continue.';
     if (id === 'studios' && !studios.length) return 'Choose at least one studio.';
-    if (id === 'booking' && !paidReady) return 'Paid signups need a Momence class.';
     if (id === 'slots' && !slotsReady) return 'Add at least one time slot.';
     return '';
   };
@@ -268,10 +266,6 @@ export default function LandingPage() {
     setLoading(true);
     try {
       const prompt = [influencer.trim() && `Influencer/Partner: ${influencer.trim()}`, eventTitle.trim() && `Event: ${eventTitle.trim()}`].filter(Boolean).join(' | ');
-      if (!paidReady) {
-        toast.error('Paid signups need a Momence class');
-        return;
-      }
       if (!slotsReady) {
         toast.error(signupType === 'slots'
           ? 'A Slot Bookings form needs at least one time slot.'
@@ -506,7 +500,7 @@ export default function LandingPage() {
                   <>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                       <div>
-                        <Label htmlFor="momence-class" className={labelClass}>Momence class {signupType === 'paid' ? '*' : '(optional)'}</Label>
+                        <Label htmlFor="momence-class" className={labelClass}>Momence class (optional)</Label>
                         {manualBooking ? (
                           <div className="flex gap-2">
                             <Input id="momence-class" inputMode="numeric" value={manualId} onChange={(e) => setManualId(e.target.value.replace(/\D/g, ''))}
@@ -522,7 +516,7 @@ export default function LandingPage() {
                           <div className="relative">
                             <select id="momence-class" value={selectedKey} onChange={(e) => chooseSession(e.target.value)} disabled={sessionsState === 'loading'}
                               className={`${fieldClass} w-full rounded-md border px-3 pr-9 appearance-none disabled:opacity-60`}>
-                              <option value="">{sessionsState === 'loading' ? 'Loading classes from Momence…' : sessions.length ? (signupType === 'paid' ? 'Select a class' : 'No pre-booking · guest picks later') : 'No upcoming classes found'}</option>
+                              <option value="">{sessionsState === 'loading' ? 'Loading classes from Momence…' : sessions.length ? 'No pre-booking · guest picks later' : 'No upcoming classes found'}</option>
                               {Object.entries(sessionsByDay).map(([day, items]) => (
                                 <optgroup key={day} label={day}>
                                   {items.map((session) => (
@@ -655,7 +649,7 @@ export default function LandingPage() {
                           <SummaryItem label="Limit" value={submissionLimit ? `${submissionLimit} sign-ups` : 'Unlimited'} />
                           <SummaryItem label="Hero" value={heroImage ? 'Chosen' : 'Auto'} />
                           <SummaryItem label="Slots" value={slotBooking.enabled || isSlotForm ? `${slotDrafts.length} · ${slotDrafts.reduce((sum, slot) => sum + (Number(slot.capacity) || 0), 0)} spots` : 'Off'} />
-                          {!isSlotForm && <SummaryItem label="Class" value={selectedSession ? `${sessionDay(selectedSession)} ${sessionTime(selectedSession)}` : sessionId || (signupType === 'paid' ? 'Required' : 'None')} span />}
+                          {!isSlotForm && <SummaryItem label="Class" value={selectedSession ? `${sessionDay(selectedSession)} ${sessionTime(selectedSession)}` : sessionId || 'None'} span />}
                         </dl>
 
                         <div className="rounded-xl neu-inset p-3">
