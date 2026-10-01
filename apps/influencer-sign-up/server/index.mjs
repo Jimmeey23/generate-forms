@@ -288,7 +288,6 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const targetStudio = targetStudios.length === 1 ? targetStudios[0] : '';
   const sessionId = String(req.body.sessionId || '').trim();
   if (sessionId && !/^\d+$/.test(sessionId)) return res.status(400).json({ error: 'Invalid Momence session ID.' });
-  if (signupType === 'paid' && !sessionId) return res.status(400).json({ error: 'Paid signup forms require a Momence class.' });
   // The pre-selected class's studio; only guests who choose that studio are auto-booked into it.
   const sessionStudio = sessionId ? String(req.body.sessionStudio || targetStudio).trim() : '';
   if (sessionId && !targetStudios.includes(sessionStudio)) return res.status(400).json({ error: 'The selected class must be at one of the chosen studios.' });

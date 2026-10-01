@@ -170,7 +170,7 @@ export default function LandingPage() {
   const cities = STUDIOS_BY_CITY.filter((group) => group.studios.some((studio) => studios.includes(studio))).map((group) => group.city);
   const studioSummary = studios.length === ALL_STUDIOS.length ? 'All studios' : studios.length === 1 ? studios[0] : `${studios.length} studios`;
   const flow = SIGNUP_FLOWS.find((option) => option.value === signupType)!;
-  const slotsReady = (!slotBooking.enabled && signupType !== 'slots') || slotDrafts.length > 0;
+  const slotsReady = signupType !== 'slots' || slotDrafts.length > 0;
   const canGenerate = Boolean(influencer.trim() || eventTitle.trim()) && studios.length > 0 && slotsReady;
 
   // One source of truth for the rail and the page body, so the two can never disagree.
@@ -185,7 +185,6 @@ export default function LandingPage() {
     ...(isKids || isSlotForm ? [] : [{ id: 'formats', title: 'Class formats', hint: 'Shapes the copy, images and class list', done: effectiveFormats.length > 0, optional: true } as WizardStep & { hint: string }]),
     // Slot forms never touch Momence classes.
     ...(isSlotForm ? [] : [{ id: 'booking', title: 'Class booking', hint: 'Optional · guests pick a class after they sign up', done: Boolean(sessionId), optional: true } as WizardStep & { hint: string }]),
-    ...(isSlotForm ? [] : [{ id: 'slots', title: 'Time slots', hint: 'Let guests book a slot with its own cap', done: slotBooking.enabled && slotDrafts.length > 0, optional: !slotBooking.enabled, warn: slotBooking.enabled && slotDrafts.length === 0 } as WizardStep & { hint: string }]),
     { id: 'fields', title: 'Extra questions', hint: 'Add your own fields on top of the standard ones', done: customFields.length > 0, optional: true },
     { id: 'hero', title: 'Hero image', hint: 'The image that leads the form', done: Boolean(heroImage), optional: true },
     { id: 'tracking', title: 'Limits & tracking', hint: 'Sign-up cap and UTM tags', done: Boolean(submissionLimit || utmTouched), optional: true },
@@ -244,11 +243,11 @@ export default function LandingPage() {
     }
   };
 
-  // Slot Bookings always books slots; every other flow leaves the toggle where it was.
+  // Time slots belong to the Slot Bookings flow alone; no other form type offers them.
   const chooseSignupType = (next: SignupType) => {
     setSignupType(next);
+    setSlotBooking((current) => ({ ...current, enabled: next === 'slots' }));
     if (next === 'slots') {
-      setSlotBooking((current) => ({ ...current, enabled: true }));
       setSelectedKey('');
       setFormats([]);
     }
@@ -267,14 +266,12 @@ export default function LandingPage() {
     try {
       const prompt = [influencer.trim() && `Influencer/Partner: ${influencer.trim()}`, eventTitle.trim() && `Event: ${eventTitle.trim()}`].filter(Boolean).join(' | ');
       if (!slotsReady) {
-        toast.error(signupType === 'slots'
-          ? 'A Slot Bookings form needs at least one time slot.'
-          : 'Add at least one time slot, or switch time slots off.');
+        toast.error('A Slot Bookings form needs at least one time slot.');
         return;
       }
-      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId, sessionStudio: sessionId ? sessionStudio : '', classFormats: effectiveFormats, submissionLimit: Number(submissionLimit) || 0, eventDate, eventTime, eventVenue: eventVenue.trim(), heroImage, customFields, utmSource: effectiveUtm.source, utmChannel: effectiveUtm.channel, utmCampaign: effectiveUtm.campaign, slotBooking: slotBooking.enabled || signupType === 'slots' ? slotBooking : undefined });
+      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId, sessionStudio: sessionId ? sessionStudio : '', classFormats: effectiveFormats, submissionLimit: Number(submissionLimit) || 0, eventDate, eventTime, eventVenue: eventVenue.trim(), heroImage, customFields, utmSource: effectiveUtm.source, utmChannel: effectiveUtm.channel, utmCampaign: effectiveUtm.campaign, slotBooking: signupType === 'slots' ? slotBooking : undefined });
       // Slots live in their own table, so they are written once the form exists.
-      if (slotDrafts.length && (slotBooking.enabled || signupType === 'slots')) {
+      if (slotDrafts.length && signupType === 'slots') {
         try {
           await saveFormSlots({ formId: form.id, slots: sortDrafts(slotDrafts).map(toSlotInput) });
         } catch (error) {
@@ -648,7 +645,7 @@ export default function LandingPage() {
                           <SummaryItem label="When" value={eventDate ? new Date(`${eventDate}T${eventTime || '00:00'}`).toLocaleString('en-IN', { day: 'numeric', month: 'short', ...(eventTime ? { hour: 'numeric', minute: '2-digit' } : {}) }) : '—'} />
                           <SummaryItem label="Limit" value={submissionLimit ? `${submissionLimit} sign-ups` : 'Unlimited'} />
                           <SummaryItem label="Hero" value={heroImage ? 'Chosen' : 'Auto'} />
-                          <SummaryItem label="Slots" value={slotBooking.enabled || isSlotForm ? `${slotDrafts.length} · ${slotDrafts.reduce((sum, slot) => sum + (Number(slot.capacity) || 0), 0)} spots` : 'Off'} />
+                          {isSlotForm && <SummaryItem label="Slots" value={`${slotDrafts.length} · ${slotDrafts.reduce((sum, slot) => sum + (Number(slot.capacity) || 0), 0)} spots`} />}
                           {!isSlotForm && <SummaryItem label="Class" value={selectedSession ? `${sessionDay(selectedSession)} ${sessionTime(selectedSession)}` : sessionId || 'None'} span />}
                         </dl>
 
