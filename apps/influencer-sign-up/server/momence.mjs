@@ -273,6 +273,18 @@ export async function signupKid(input, form) {
   if (form.sessionId) await momence(`/host/sessions/${Number(form.sessionId)}/bookings/free`, { method: 'POST', body: JSON.stringify({ memberId: childId }) }, config.account);
   return { memberId: childId, parentMemberId: parent.memberId, booked: Boolean(form.sessionId) };
 }
+const KIDS_HOSTED_MIN_AGE = 8;
+const KIDS_HOSTED_MAX_AGE = 12;
+// Whole years today (IST) from a YYYY-MM-DD date of birth; null when the date is invalid.
+function ageOn(dob) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dob);
+  if (!m) return null;
+  const [y, mo, d] = m.slice(1).map(Number);
+  const birth = new Date(Date.UTC(y, mo - 1, d));
+  if (birth.getUTCMonth() !== mo - 1 || birth.getUTCDate() !== d) return null;
+  const [ty, tm, td] = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }).split('-').map(Number);
+  return ty - y - (tm < mo || (tm === mo && td < d) ? 1 : 0);
+}
 // Hosted (private) classes only, for the kids hosted-class sign-up page.
 export async function listHostedSessions(center, daysAhead = 60) {
   const config = locationConfig(center);
@@ -292,6 +304,11 @@ export async function signupKidsHosted(input) {
   const children = (Array.isArray(input.children) ? input.children : []).filter((child) => String(child?.name || '').trim());
   if (!children.length) throw new Error('Please add at least one child.');
   if (children.length > 10) throw new Error('Please add at most 10 children per sign-up.');
+  for (const child of children) {
+    const age = ageOn(String(child.dateOfBirth || ''));
+    if (age == null) throw new Error(`Please enter a valid date of birth for ${child.name}.`);
+    if (age < KIDS_HOSTED_MIN_AGE || age > KIDS_HOSTED_MAX_AGE) throw new Error(`${String(child.name).trim()} must be between ${KIDS_HOSTED_MIN_AGE} and ${KIDS_HOSTED_MAX_AGE} years old to sign up.`);
+  }
   if (!input.signatureRealSignature) throw new Error('Please sign the waiver.');
   const parent = await createMember(input, config);
   await signWaivers(parent.memberId, input.signatureRealSignature, config, ['waiver', 'membership-waiver']);

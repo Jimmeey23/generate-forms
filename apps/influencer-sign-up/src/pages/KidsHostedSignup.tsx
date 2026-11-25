@@ -14,6 +14,18 @@ const sessionLabel = (s: MomenceSession) => {
   return `${s.name} · ${when}${s.teacherName ? ` · ${s.teacherName}` : ''}${spots}`;
 };
 const EMPTY_CHILD: KidsHostedChild = { name: '', dateOfBirth: '' };
+const MIN_AGE = 8;
+const MAX_AGE = 12;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// Age in whole years on today's date, from a YYYY-MM-DD string.
+function ageFrom(dob: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dob);
+  if (!m) return null;
+  const now = new Date();
+  let age = now.getFullYear() - Number(m[1]);
+  if (now.getMonth() + 1 < Number(m[2]) || (now.getMonth() + 1 === Number(m[2]) && now.getDate() < Number(m[3]))) age -= 1;
+  return age;
+}
 
 export default function KidsHostedSignup() {
   const [center, setCenter] = useState(CENTERS[0]);
@@ -50,7 +62,9 @@ export default function KidsHostedSignup() {
     if (!selected) return setError('Please choose a hosted class.');
     if (!parent.firstName.trim() || !parent.lastName.trim() || !parent.email.trim() || !parent.phone.trim()) return setError('Please fill in all parent details.');
     if (!kids.length) return setError('Please add at least one child.');
-    if (kids.some((c) => !c.dateOfBirth)) return setError("Please enter each child's date of birth.");
+    if (kids.some((c) => ageFrom(c.dateOfBirth) == null)) return setError("Please enter each child's full date of birth.");
+    const outOfRange = kids.find((c) => { const age = ageFrom(c.dateOfBirth)!; return age < MIN_AGE || age > MAX_AGE; });
+    if (outOfRange) return setError(`${outOfRange.name.trim()} must be between ${MIN_AGE} and ${MAX_AGE} years old to sign up.`);
     if (selected.spotsLeft != null && selected.spotsLeft < kids.length) return setError(`Only ${selected.spotsLeft} place${selected.spotsLeft === 1 ? '' : 's'} left in this class.`);
     if (!signature) return setError('Please sign the waiver.');
     if (!waiverAccepted) return setError('Please accept the waiver.');
@@ -77,7 +91,7 @@ export default function KidsHostedSignup() {
         <section className="mb-8 rounded-3xl border border-border/60 bg-card/70 p-6 md:p-8">
           <p className="text-xs font-bold uppercase tracking-[.22em] text-primary">Complimentary</p>
           <h1 className="mt-2 text-3xl font-bold md:text-4xl" style={{ fontFamily: "'Playfair Display', serif" }}>Kids hosted class sign-up</h1>
-          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">Pick a hosted class, add your children, and sign the waiver. Every child is booked into the class free of charge.</p>
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">For children aged {MIN_AGE}–{MAX_AGE}. Pick a hosted class, add your children, and sign the waiver. Every child is booked into the class free of charge.</p>
         </section>
 
         {result ? (
@@ -127,9 +141,10 @@ export default function KidsHostedSignup() {
               <h2 className="mb-3 text-sm font-bold uppercase tracking-wider">Children</h2>
               <div className="space-y-4">
                 {children.map((child, i) => (
-                  <div key={i} className="grid items-end gap-4 sm:grid-cols-[1fr_180px_auto]">
+                  <div key={i} className="grid items-end gap-4 sm:grid-cols-[1fr_260px_80px_auto]">
                     <Field label={`Child ${i + 1} full name *`} value={child.name} onChange={(v) => updateChild(i, 'name', v)} />
-                    <Field label="Date of birth *" type="date" value={child.dateOfBirth} onChange={(v) => updateChild(i, 'dateOfBirth', v)} />
+                    <DobPicker value={child.dateOfBirth} onChange={(v) => updateChild(i, 'dateOfBirth', v)} />
+                    <AgeField dob={child.dateOfBirth} />
                     <Button type="button" variant="ghost" disabled={children.length === 1} onClick={() => setChildren((list) => list.filter((_, j) => j !== i))} aria-label="Remove child"><Trash2 className="h-4 w-4" /></Button>
                   </div>
                 ))}
@@ -164,6 +179,53 @@ function Field({ label, value, onChange, type = 'text' }: { label: string; value
     <div>
       <Label className="mb-2 block text-xs uppercase tracking-wider">{label}</Label>
       <Input type={type} value={value} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  );
+}
+
+// Day / month / year dropdowns: jumping straight to a year beats paging a calendar month by month.
+// Years are limited to those that can give an age between MIN_AGE and MAX_AGE.
+function DobPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [y = '', mo = '', d = ''] = value ? value.split('-') : [];
+  const [parts, setParts] = useState({ y, mo, d });
+  const thisYear = new Date().getFullYear();
+  const years = Array.from({ length: MAX_AGE - MIN_AGE + 2 }, (_, k) => String(thisYear - MIN_AGE - k));
+  const daysInMonth = parts.y && parts.mo ? new Date(Number(parts.y), Number(parts.mo), 0).getDate() : 31;
+  const set = (key: 'y' | 'mo' | 'd', v: string) => {
+    const next = { ...parts, [key]: v };
+    if (next.y && next.mo && Number(next.d) > new Date(Number(next.y), Number(next.mo), 0).getDate()) next.d = '';
+    setParts(next);
+    onChange(next.y && next.mo && next.d ? `${next.y}-${next.mo}-${next.d}` : '');
+  };
+  const cls = 'h-10 rounded-md border border-border bg-background px-2 text-sm';
+  return (
+    <div>
+      <Label className="mb-2 block text-xs uppercase tracking-wider">Date of birth *</Label>
+      <div className="grid grid-cols-[1fr_1.2fr_1.3fr] gap-2">
+        <select aria-label="Day" className={cls} value={parts.d} onChange={(e) => set('d', e.target.value)}>
+          <option value="">Day</option>
+          {Array.from({ length: daysInMonth }, (_, k) => String(k + 1).padStart(2, '0')).map((v) => <option key={v} value={v}>{Number(v)}</option>)}
+        </select>
+        <select aria-label="Month" className={cls} value={parts.mo} onChange={(e) => set('mo', e.target.value)}>
+          <option value="">Month</option>
+          {MONTHS.map((name, k) => <option key={name} value={String(k + 1).padStart(2, '0')}>{name}</option>)}
+        </select>
+        <select aria-label="Year" className={cls} value={parts.y} onChange={(e) => set('y', e.target.value)}>
+          <option value="">Year</option>
+          {years.map((v) => <option key={v}>{v}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+function AgeField({ dob }: { dob: string }) {
+  const age = ageFrom(dob);
+  const invalid = age != null && (age < MIN_AGE || age > MAX_AGE);
+  return (
+    <div>
+      <Label className="mb-2 block text-xs uppercase tracking-wider">Age</Label>
+      <Input readOnly tabIndex={-1} value={age == null ? '' : String(age)} aria-invalid={invalid} className={invalid ? 'border-red-500 text-red-300' : ''} />
     </div>
   );
 }
