@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
-import { fulfillCheckout, handleStripeWebhook, listSessions, selectClassAndContinue, signupAdult, signupKid } from './momence.mjs';
+import { fulfillCheckout, handleStripeWebhook, listHostedSessions, listSessions, selectClassAndContinue, signupAdult, signupKid, signupKidsHosted } from './momence.mjs';
 import { appendSubmissionRow, createFormSheet, sheetsConfigured } from './sheets.mjs';
 import { describeToForm, openAiConfigured } from './textToForm.mjs';
 import { HERO_IMAGES, FORMAT_HERO_INDEXES, KIDS_HERO_INDEXES } from '../shared/heroImages.mjs';
@@ -633,6 +633,23 @@ app.get('/api/momence/sessions', asyncRoute(async (req, res) => {
   const center = String(req.query.center || '').trim();
   const classType = String(req.query.classType || 'Barre').trim();
   res.json({ sessions: await listSessions(center, classType, Number(req.query.daysAhead || 30)) });
+}));
+
+app.get('/api/momence/hosted-sessions', asyncRoute(async (req, res) => {
+  const center = String(req.query.center || '').trim();
+  res.json({ sessions: await listHostedSessions(center, Number(req.query.daysAhead || 60)) });
+}));
+
+app.post('/api/momence/kids-hosted-signup', asyncRoute(async (req, res) => {
+  const body = req.body || {};
+  const email = String(body.email || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Please enter a valid email address.' });
+  if (!body.waiverAccepted) return res.status(400).json({ error: 'Please accept the waiver.' });
+  try {
+    res.json(await signupKidsHosted({ ...body, email, phone: formatPhone(body.phone) }));
+  } catch (error) {
+    res.status(400).json({ error: error?.message || 'Sign-up failed' });
+  }
 }));
 
 app.post('/api/momence/select-class', asyncRoute(async (req, res) => {

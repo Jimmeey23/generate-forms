@@ -256,16 +256,58 @@ export async function signupAdult(input, form) {
   return { memberId: created.memberId, config, plan, paymentRequired: false, scheduleRequiresPayment: false, booked: false, sessionId: form.sessionId ? String(form.sessionId) : '' };
 }
 function splitChild(name, parentLastName) { const parts = cleanName(name).split(' ').filter(Boolean); return { firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || cleanName(parentLastName) }; }
-export async function signupKid(input, form) {
-  const config = locationConfig(form.targetStudio || input.center); const parent = await createMember(input, config); const child = splitChild(input.childName, input.lastName);
-  const crm = `https://momence.com/dashboard/${config.hostId}/crm/${parent.memberId}`;
-  const result = await dashboard(`/host/${config.hostId}/customers/${parent.memberId}/children`, { method: 'POST', headers: { Referer: crm, 'X-Origin': crm }, body: JSON.stringify({ autoGenerateEmail: true, email: '', ...child, customerFields: [{ id: 6592, value: input.childDateOfBirth }] }) });
+async function createChild(parentMemberId, childName, parentLastName, dateOfBirth, config) {
+  const child = splitChild(childName, parentLastName);
+  if (!child.firstName) throw new Error('Please enter each child\'s name using letters.');
+  const crm = `https://momence.com/dashboard/${config.hostId}/crm/${parentMemberId}`;
+  const result = await dashboard(`/host/${config.hostId}/customers/${parentMemberId}/children`, { method: 'POST', headers: { Referer: crm, 'X-Origin': crm }, body: JSON.stringify({ autoGenerateEmail: true, email: '', ...child, customerFields: [{ id: 6592, value: dateOfBirth }] }) });
   const childId = result.memberId || result.id || result.payload?.memberId || result.payload?.id || result.child?.memberId || result.child?.id;
   if (!childId) throw new Error('Momence did not return a member id for the child account.');
+  return { childId, name: `${child.firstName} ${child.lastName}`.trim() };
+}
+export async function signupKid(input, form) {
+  const config = locationConfig(form.targetStudio || input.center); const parent = await createMember(input, config);
+  const { childId } = await createChild(parent.memberId, input.childName, input.lastName, input.childDateOfBirth, config);
   await signWaivers(parent.memberId, input.signatureRealSignature, config, ['waiver', 'membership-waiver']);
   await signWaivers(childId, input.signatureRealSignature, config, ['child-waiver'], true);
   if (form.sessionId) await momence(`/host/sessions/${Number(form.sessionId)}/bookings/free`, { method: 'POST', body: JSON.stringify({ memberId: childId }) }, config.account);
   return { memberId: childId, parentMemberId: parent.memberId, booked: Boolean(form.sessionId) };
+}
+// Hosted (private) classes only, for the kids hosted-class sign-up page.
+export async function listHostedSessions(center, daysAhead = 60) {
+  const config = locationConfig(center);
+  const end = new Date(Date.now() + Math.min(120, Math.max(1, daysAhead)) * 86400000);
+  const rows = await fetchSessions(config, center, end, true);
+  return rows.filter((session) => !session.isCancelled).map((session) => normalizeSession(session, center, true))
+    .sort((a, b) => String(a.startsAt).localeCompare(String(b.startsAt)));
+}
+// Creates the parent, one child account per kid, signs waivers, then books every child into the
+// chosen hosted class at no charge. Each child is booked independently so one failure is reported
+// without losing the others.
+export async function signupKidsHosted(input) {
+  const config = locationConfig(input.center);
+  const sessionId = Number(input.sessionId);
+  if (!sessionId) throw new Error('Please choose a hosted class.');
+  if (!(await isHostedSession(sessionId, config))) throw new Error('The selected class is not a hosted class at this studio.');
+  const children = (Array.isArray(input.children) ? input.children : []).filter((child) => String(child?.name || '').trim());
+  if (!children.length) throw new Error('Please add at least one child.');
+  if (children.length > 10) throw new Error('Please add at most 10 children per sign-up.');
+  if (!input.signatureRealSignature) throw new Error('Please sign the waiver.');
+  const parent = await createMember(input, config);
+  await signWaivers(parent.memberId, input.signatureRealSignature, config, ['waiver', 'membership-waiver']);
+  const results = [];
+  for (const entry of children) {
+    try {
+      const { childId, name } = await createChild(parent.memberId, entry.name, input.lastName, String(entry.dateOfBirth || ''), config);
+      await signWaivers(childId, input.signatureRealSignature, config, ['child-waiver'], true);
+      await bookHosted(childId, sessionId, config);
+      results.push({ name, memberId: childId, booked: true });
+    } catch (error) {
+      console.error(`Hosted kids booking failed for ${entry.name}:`, error);
+      results.push({ name: String(entry.name), booked: false, error: error?.message || 'Booking failed' });
+    }
+  }
+  return { parentMemberId: parent.memberId, sessionId, children: results, allBooked: results.every((r) => r.booked) };
 }
 function stripe() { if (!stripeClient) stripeClient = new Stripe(required('STRIPE_SECRET_KEY')); return stripeClient; }
 export async function createPaidCheckout({ memberId, form, origin }) {
