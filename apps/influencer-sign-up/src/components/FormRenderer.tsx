@@ -303,7 +303,18 @@ function ThemeToggle({ side = 'right' }: { side?: 'left' | 'right' }) {
   );
 }
 
-function FieldsGrid({ fields, values, errors, setValue, bold }: { fields: FormField[]; values: Record<string, any>; errors: Record<string, string>; setValue: (id: string, v: any) => void; bold?: boolean }) {
+// The child's age is derived from the date of birth, so the date of birth always comes first,
+// including on forms saved with the old order.
+function dobBeforeAge(fields: FormField[]): FormField[] {
+  const ageIndex = fields.findIndex((f) => f.id === 'childAge');
+  const dobIndex = fields.findIndex((f) => f.id === 'childDateOfBirth');
+  if (ageIndex < 0 || dobIndex < 0 || dobIndex < ageIndex) return fields;
+  const next = [...fields];
+  [next[ageIndex], next[dobIndex]] = [next[dobIndex], next[ageIndex]];
+  return next;
+}
+function FieldsGrid({ fields: rawFields, values, errors, setValue, bold }: { fields: FormField[]; values: Record<string, any>; errors: Record<string, string>; setValue: (id: string, v: any) => void; bold?: boolean }) {
+  const fields = dobBeforeAge(rawFields);
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-6">
       {fields.map((field, i) => (

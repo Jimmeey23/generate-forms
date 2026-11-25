@@ -101,8 +101,8 @@ function fieldsForSignupType(signupType, studios, classFormats = [], extraFields
   if (signupType === 'kids') return [
     ...common,
     { id: 'childName', type: 'text', label: "Child's full name", required: true, gridCol: 'full' },
-    { id: 'childAge', type: 'number', label: "Child's age", required: true, gridCol: 'half', min: KIDS_HOSTED_MIN_AGE, max: KIDS_HOSTED_MAX_AGE, helperText: 'Filled automatically from the date of birth.' },
     { id: 'childDateOfBirth', type: 'date', label: "Child's date of birth", required: true, gridCol: 'half' },
+    { id: 'childAge', type: 'number', label: "Child's age", required: true, gridCol: 'half', min: KIDS_HOSTED_MIN_AGE, max: KIDS_HOSTED_MAX_AGE, helperText: 'Filled automatically from the date of birth.' },
     { id: 'batch', type: 'text', label: 'Preferred Juniors class / batch', placeholder: 'Optional preference', required: false, gridCol: 'full' },
     ...extraFields,
     ...SIGNATURE_FIELDS.map((field) => field.id === 'signatureName' ? { ...field, label: 'Parent/guardian signature name' } : field),
