@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
-import { fulfillCheckout, handleStripeWebhook, listHostedSessions, listSessions, selectClassAndContinue, signupAdult, signupKid, signupKidsHosted } from './momence.mjs';
+import { ageOn, KIDS_HOSTED_MAX_AGE, KIDS_HOSTED_MIN_AGE, fulfillCheckout, handleStripeWebhook, listHostedSessions, listSessions, selectClassAndContinue, signupAdult, signupKid, signupKidsHosted } from './momence.mjs';
 import { appendSubmissionRow, createFormSheet, sheetsConfigured } from './sheets.mjs';
 import { describeToForm, openAiConfigured } from './textToForm.mjs';
 import { HERO_IMAGES, FORMAT_HERO_INDEXES, KIDS_HERO_INDEXES } from '../shared/heroImages.mjs';
@@ -101,7 +101,7 @@ function fieldsForSignupType(signupType, studios, classFormats = [], extraFields
   if (signupType === 'kids') return [
     ...common,
     { id: 'childName', type: 'text', label: "Child's full name", required: true, gridCol: 'full' },
-    { id: 'childAge', type: 'number', label: "Child's age", required: true, gridCol: 'half', min: 5, max: 17 },
+    { id: 'childAge', type: 'number', label: "Child's age", required: true, gridCol: 'half', min: KIDS_HOSTED_MIN_AGE, max: KIDS_HOSTED_MAX_AGE, helperText: 'Filled automatically from the date of birth.' },
     { id: 'childDateOfBirth', type: 'date', label: "Child's date of birth", required: true, gridCol: 'half' },
     { id: 'batch', type: 'text', label: 'Preferred Juniors class / batch', placeholder: 'Optional preference', required: false, gridCol: 'full' },
     ...extraFields,
@@ -506,6 +506,13 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   // Slot bookings collect a slot, not a class: no waiver, no signature, no Momence profile.
   if (!isSlotBooking && (!responses.signatureRealSignature || !responses.waiverAccepted)) {
     return res.status(400).json({ error: 'A drawn signature and waiver acceptance are required.' });
+  }
+  // Kids sign-ups: age comes from the date of birth (never the typed value) and must be 8-12.
+  if (formData.signupType === 'kids' && responses.childDateOfBirth !== undefined) {
+    const age = ageOn(String(responses.childDateOfBirth || ''));
+    if (age == null) return res.status(400).json({ error: "Please enter the child's full date of birth." });
+    if (age < KIDS_HOSTED_MIN_AGE || age > KIDS_HOSTED_MAX_AGE) return res.status(400).json({ error: `Children must be between ${KIDS_HOSTED_MIN_AGE} and ${KIDS_HOSTED_MAX_AGE} years old to sign up.` });
+    responses.childAge = age;
   }
   const rawCenter = String(responses.center || '').trim();
   const centerKey = CENTER_CONFIG[rawCenter.toLowerCase()] ? rawCenter.toLowerCase() : FALLBACK_CENTER.toLowerCase();

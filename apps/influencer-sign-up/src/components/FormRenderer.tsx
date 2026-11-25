@@ -15,6 +15,8 @@ import { BRAND_LOGO, BRAND_LOGO_DARK, isBrandLogo } from '@/lib/constants';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import SignaturePad from './SignaturePad';
+import DobSelect from './DobSelect';
+import { ageFrom, isKidsAgeAllowed, KIDS_MAX_AGE, KIDS_MIN_AGE } from '@/lib/age';
 import LegalDialog, { linkLegalPhrases, type LegalKind } from './LegalDialog';
 import SlotPicker from './SlotPicker';
 import type { FormSlot, SlotBooking } from '@/lib/api';
@@ -125,6 +127,8 @@ export default function FormRenderer({ form, preview, onSubmit, submitting }: {
   const setValue = (id: string, value: any) => {
     setValues((prev) => {
       const next = { ...prev, [id]: value };
+      // The child's age is derived from the date of birth, never typed.
+      if (id === 'childDateOfBirth') { const age = ageFrom(value); next.childAge = age == null ? '' : age; }
       if (id === 'center') {
         const classField = form.fields.find(f => f.id === 'classType');
         if (classField) {
@@ -134,7 +138,7 @@ export default function FormRenderer({ form, preview, onSubmit, submitting }: {
       }
       return next;
     });
-    if (errors[id]) setErrors((prev) => ({ ...prev, [id]: '' }));
+    if (errors[id] || (id === 'childDateOfBirth' && errors.childAge)) setErrors((prev) => ({ ...prev, [id]: '', ...(id === 'childDateOfBirth' ? { childAge: '' } : {}) }));
   };
 
   useEffect(() => {
@@ -153,6 +157,9 @@ export default function FormRenderer({ form, preview, onSubmit, submitting }: {
         if (v === undefined || v === '' || v === false || (Array.isArray(v) && v.length === 0)) errs[f.id] = 'This field is required';
       }
     });
+    if (form.fields.some((f) => f.id === 'childDateOfBirth') && values.childDateOfBirth && !isKidsAgeAllowed(ageFrom(values.childDateOfBirth))) {
+      errs.childDateOfBirth = `Children must be between ${KIDS_MIN_AGE} and ${KIDS_MAX_AGE} years old to sign up.`;
+    }
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -719,8 +726,37 @@ function FieldRenderer({ field, value, onChange, error, bold }: { field: FormFie
     );
   }
 
+  // Auto-filled from the date of birth.
+  if (field.id === 'childAge') {
+    const outOfRange = value !== '' && value != null && !isKidsAgeAllowed(Number(value));
+    return (
+      <div className="space-y-1.5">
+        <Label className={labelClass} style={{ color: 'hsl(var(--form-text-secondary))' }}>{field.label}</Label>
+        <input readOnly tabIndex={-1} value={value ?? ''} placeholder="Filled from date of birth" aria-invalid={outOfRange}
+          className="w-full h-11 rounded-md px-3 text-sm cursor-not-allowed"
+          style={{ background: 'hsl(var(--form-surface))', border: `1px solid hsl(var(--form-${outOfRange ? 'error' : 'border'}))`, color: 'hsl(var(--form-text))' }} />
+        <p className="text-[11px]" style={{ color: 'hsl(var(--form-text-muted))' }}>Ages {KIDS_MIN_AGE}–{KIDS_MAX_AGE} only.</p>
+      </div>
+    );
+  }
+
+  // Birth dates use day / month / year dropdowns so the year can be picked directly.
+  if (field.type === 'date' && (/dateofbirth|dob/i.test(field.id) || /birth/i.test(field.label || ''))) {
+    const kids = field.id === 'childDateOfBirth';
+    return (
+      <div className="space-y-1.5">
+        <Label className={labelClass} style={{ color: 'hsl(var(--form-text-secondary))' }}>{field.label}{field.required && <span className="text-red-400 ml-0.5">*</span>}</Label>
+        <DobSelect value={value || ''} onChange={onChange} minAge={kids ? KIDS_MIN_AGE : 0} maxAge={kids ? KIDS_MAX_AGE : 100} invalid={!!error}
+          selectStyle={{ background: 'hsl(var(--form-surface))', borderColor: 'hsl(var(--form-border))', color: 'hsl(var(--form-text))' }} />
+        {field.helperText && <p className="text-[11px]" style={{ color: 'hsl(var(--form-text-muted))' }}>{field.helperText}</p>}
+        {error && <p className="text-xs" style={{ color: 'hsl(var(--form-error))' }}>{error}</p>}
+      </div>
+    );
+  }
+
   if (field.type === 'date') {
-    const d = value ? new Date(value) : undefined;
+    // Parse and store as a local calendar date; toISOString() would shift it a day back in IST.
+    const d = value ? new Date(`${value}T00:00:00`) : undefined;
     return (
       <div className="space-y-1.5">
         <Label className={labelClass} style={{ color: 'hsl(var(--form-text-secondary))' }}>{field.label}{field.required && <span className="text-red-400 ml-0.5">*</span>}</Label>
@@ -733,7 +769,7 @@ function FieldRenderer({ field, value, onChange, error, bold }: { field: FormFie
             </Button>
           </PopoverTrigger>
           <PopoverContent className={`w-auto p-0 ${dark ? 'form-dark' : ''}`} align="start" style={{ background: 'hsl(var(--form-dropdown-bg))', border: '1px solid hsl(var(--form-border))', color: 'hsl(var(--form-text))' }}>
-            <Calendar mode="single" selected={d} onSelect={day => onChange(day ? day.toISOString().split('T')[0] : '')} />
+            <Calendar mode="single" selected={d} onSelect={day => onChange(day ? format(day, 'yyyy-MM-dd') : '')} />
           </PopoverContent>
         </Popover>
         {field.helperText && <p className="text-[11px]" style={{ color: 'hsl(var(--form-text-muted))' }}>{field.helperText}</p>}

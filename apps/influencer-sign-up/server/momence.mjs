@@ -273,10 +273,10 @@ export async function signupKid(input, form) {
   if (form.sessionId) await momence(`/host/sessions/${Number(form.sessionId)}/bookings/free`, { method: 'POST', body: JSON.stringify({ memberId: childId }) }, config.account);
   return { memberId: childId, parentMemberId: parent.memberId, booked: Boolean(form.sessionId) };
 }
-const KIDS_HOSTED_MIN_AGE = 8;
-const KIDS_HOSTED_MAX_AGE = 12;
+export const KIDS_HOSTED_MIN_AGE = 8;
+export const KIDS_HOSTED_MAX_AGE = 12;
 // Whole years today (IST) from a YYYY-MM-DD date of birth; null when the date is invalid.
-function ageOn(dob) {
+export function ageOn(dob) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dob);
   if (!m) return null;
   const [y, mo, d] = m.slice(1).map(Number);

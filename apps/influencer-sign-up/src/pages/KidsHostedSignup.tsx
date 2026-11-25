@@ -4,6 +4,8 @@ import { Button } from '@project/components/ui/button';
 import { Input } from '@project/components/ui/input';
 import { Label } from '@project/components/ui/label';
 import SignaturePad from '@/components/SignaturePad';
+import DobSelect from '@/components/DobSelect';
+import { ageFrom, KIDS_MAX_AGE as MAX_AGE, KIDS_MIN_AGE as MIN_AGE } from '@/lib/age';
 import { BRAND_LOGO_DARK, CENTERS } from '@/lib/constants';
 import { getHostedSessions, signupKidsHosted, type KidsHostedChild, type KidsHostedResult, type MomenceSession } from '@/lib/api';
 
@@ -14,19 +16,6 @@ const sessionLabel = (s: MomenceSession) => {
   return `${s.name} · ${when}${s.teacherName ? ` · ${s.teacherName}` : ''}${spots}`;
 };
 const EMPTY_CHILD: KidsHostedChild = { name: '', dateOfBirth: '' };
-const MIN_AGE = 8;
-const MAX_AGE = 12;
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-// Age in whole years on today's date, from a YYYY-MM-DD string.
-function ageFrom(dob: string): number | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dob);
-  if (!m) return null;
-  const now = new Date();
-  let age = now.getFullYear() - Number(m[1]);
-  if (now.getMonth() + 1 < Number(m[2]) || (now.getMonth() + 1 === Number(m[2]) && now.getDate() < Number(m[3]))) age -= 1;
-  return age;
-}
-
 export default function KidsHostedSignup() {
   const [center, setCenter] = useState(CENTERS[0]);
   const [sessions, setSessions] = useState<MomenceSession[]>([]);
@@ -183,38 +172,11 @@ function Field({ label, value, onChange, type = 'text' }: { label: string; value
   );
 }
 
-// Day / month / year dropdowns: jumping straight to a year beats paging a calendar month by month.
-// Years are limited to those that can give an age between MIN_AGE and MAX_AGE.
 function DobPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  const [y = '', mo = '', d = ''] = value ? value.split('-') : [];
-  const [parts, setParts] = useState({ y, mo, d });
-  const thisYear = new Date().getFullYear();
-  const years = Array.from({ length: MAX_AGE - MIN_AGE + 2 }, (_, k) => String(thisYear - MIN_AGE - k));
-  const daysInMonth = parts.y && parts.mo ? new Date(Number(parts.y), Number(parts.mo), 0).getDate() : 31;
-  const set = (key: 'y' | 'mo' | 'd', v: string) => {
-    const next = { ...parts, [key]: v };
-    if (next.y && next.mo && Number(next.d) > new Date(Number(next.y), Number(next.mo), 0).getDate()) next.d = '';
-    setParts(next);
-    onChange(next.y && next.mo && next.d ? `${next.y}-${next.mo}-${next.d}` : '');
-  };
-  const cls = 'h-10 rounded-md border border-border bg-background px-2 text-sm';
   return (
     <div>
       <Label className="mb-2 block text-xs uppercase tracking-wider">Date of birth *</Label>
-      <div className="grid grid-cols-[1fr_1.2fr_1.3fr] gap-2">
-        <select aria-label="Day" className={cls} value={parts.d} onChange={(e) => set('d', e.target.value)}>
-          <option value="">Day</option>
-          {Array.from({ length: daysInMonth }, (_, k) => String(k + 1).padStart(2, '0')).map((v) => <option key={v} value={v}>{Number(v)}</option>)}
-        </select>
-        <select aria-label="Month" className={cls} value={parts.mo} onChange={(e) => set('mo', e.target.value)}>
-          <option value="">Month</option>
-          {MONTHS.map((name, k) => <option key={name} value={String(k + 1).padStart(2, '0')}>{name}</option>)}
-        </select>
-        <select aria-label="Year" className={cls} value={parts.y} onChange={(e) => set('y', e.target.value)}>
-          <option value="">Year</option>
-          {years.map((v) => <option key={v}>{v}</option>)}
-        </select>
-      </div>
+      <DobSelect value={value} onChange={onChange} minAge={MIN_AGE} maxAge={MAX_AGE} selectClassName="h-10 border-border bg-background" />
     </div>
   );
 }
