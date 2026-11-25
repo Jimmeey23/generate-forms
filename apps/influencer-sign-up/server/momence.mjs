@@ -179,7 +179,7 @@ async function fetchSessions(config, center, end, hosted) {
       const params = new URLSearchParams({ sortBy: 'startsAt', sortOrder: 'ASC', dateFrom: now.toISOString(), page: String(page), pageSize: String(pageSize), query: 'plash', timeZone: 'Asia/Kolkata', grouped: 'false' });
       for (const id of PLASH_SCHEDULE_LOCATION_IDS) params.append('locationIds[]', String(id));
       params.append('status[]', 'published'); params.append('status[]', 'unpublished');
-      if (hosted) params.append('types[]', 'private');
+      if (hosted) { params.append('types[]', 'private'); params.append('type[]', 'private'); }
       const result = await readonly(`/host/33905/sessions?${params}`);
       const rows = Array.isArray(result) ? result : Array.isArray(result.payload) ? result.payload : (result.payload?.sessions || result.sessions || []);
       rowsFound.push(...rows.filter((session) => new Date(session.startsAt) < end));
@@ -188,7 +188,7 @@ async function fetchSessions(config, center, end, hosted) {
     return rowsFound;
   }
   const params = new URLSearchParams({ page: '0', pageSize: '200', sortBy: 'startsAt', sortOrder: 'ASC', locationId: String(config.id), startAfter: now.toISOString(), startBefore: end.toISOString(), includeCancelled: 'false', includeChildLocations: 'true' });
-  if (hosted) params.append('types[]', 'private');
+  if (hosted) { params.append('types[]', 'private'); params.append('type[]', 'private'); }
   const result = await momence(`/host/sessions?${params}`, {}, config.account);
   return result.payload || [];
 }
