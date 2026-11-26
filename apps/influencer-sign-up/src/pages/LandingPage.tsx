@@ -3,9 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@project/components/ui/button';
 import { Input } from '@project/components/ui/input';
 import { Label } from '@project/components/ui/label';
-import { Loader2, ArrowRight, ChevronLeft, Sparkles, Zap, Share2, BarChart3, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle, Image as ImageIcon, Tag, CalendarClock, Plus, Pencil, Trash2, GripVertical, Wand2, ChevronDown } from 'lucide-react';
+import { Loader2, ArrowRight, ChevronLeft, Sparkles, Zap, Share2, BarChart3, ChevronRight, Check, MapPin, Gift, CreditCard, Baby, Shuffle, Image as ImageIcon, Tag, CalendarClock, Plus, Pencil, Trash2, GripVertical, Wand2, ChevronDown, Timer } from 'lucide-react';
 import { generateForm, describeForm, getMomenceSessions, saveFormSlots, DEFAULT_SLOT_BOOKING, type MomenceSession, type SlotBooking } from '@/lib/api';
 import SlotWizard from '@/components/SlotWizard';
+import ClassWindowsEditor from '@/components/ClassWindowsEditor';
+import type { ClassWindow } from '@/lib/api';
 import WizardSteps, { type WizardStep } from '@/components/WizardSteps';
 import HeroPicker from '@/components/HeroPicker';
 import { sortDrafts, toSlotInput, type SlotDraft } from '@/lib/slots';
@@ -22,6 +24,7 @@ const SIGNUP_FLOWS: { value: SignupType; label: string; desc: string; icon: Reac
   { value: 'paid', label: 'Paid signup', desc: 'Checkout, then auto-book', icon: CreditCard },
   { value: 'kids', label: 'Kids / Juniors', desc: 'Parent-signed waiver', icon: Baby },
   { value: 'slots', label: 'Slot Bookings', desc: 'Book a time slot, no class', icon: CalendarClock },
+  { value: 'windows', label: 'Class Windows', desc: 'Any class in your time windows · 1st free, 2nd 50% off', icon: Timer },
 ];
 
 const STUDIOS_BY_CITY: { city: string; studios: string[] }[] = [
@@ -88,6 +91,8 @@ export default function LandingPage() {
   const [submissionLimit, setSubmissionLimit] = useState('');
   const [slotBooking, setSlotBooking] = useState<SlotBooking>(DEFAULT_SLOT_BOOKING);
   const [slotDrafts, setSlotDrafts] = useState<SlotDraft[]>([]);
+  const [classWindows, setClassWindows] = useState<ClassWindow[]>([]);
+  const [windowFullPrice, setWindowFullPrice] = useState('');
   const [heroImage, setHeroImage] = useState('');
   // Extra questions the organiser adds on top of the flow's built-in fields.
   const [customFields, setCustomFields] = useState<BuilderField[]>([]);
@@ -171,20 +176,24 @@ export default function LandingPage() {
   const studioSummary = studios.length === ALL_STUDIOS.length ? 'All studios' : studios.length === 1 ? studios[0] : `${studios.length} studios`;
   const flow = SIGNUP_FLOWS.find((option) => option.value === signupType)!;
   const slotsReady = signupType !== 'slots' || slotDrafts.length > 0;
-  const canGenerate = Boolean(influencer.trim() || eventTitle.trim()) && studios.length > 0 && slotsReady;
+  const validWindows = classWindows.filter((w) => w.date && w.startTime && w.endTime && w.endTime > w.startTime);
+  const windowsReady = signupType !== 'windows' || (validWindows.length > 0 && Number(windowFullPrice) > 0);
+  const canGenerate = Boolean(influencer.trim() || eventTitle.trim()) && studios.length > 0 && slotsReady && windowsReady;
 
   // One source of truth for the rail and the page body, so the two can never disagree.
   const isKids = signupType === 'kids';
   const isSlotForm = signupType === 'slots';
+  const isWindowForm = signupType === 'windows';
   const sectionMeta: (WizardStep & { hint: string })[] = [
     { id: 'type', title: 'Form type', hint: 'What happens after someone signs up', done: true },
     { id: 'campaign', title: 'Partner & event', hint: 'Whose name is on this form', done: Boolean(influencer.trim() || eventTitle.trim()) },
     // A slot form's schedule is its subject, so it leads the Experience phase.
     ...(isSlotForm ? [{ id: 'slots', title: 'Time slots', hint: 'The schedule guests book from', done: slotDrafts.length > 0, warn: slotDrafts.length === 0 } as WizardStep & { hint: string }] : []),
+    ...(isWindowForm ? [{ id: 'windows', title: 'Time windows', hint: 'Every class starting inside these is offered', done: windowsReady && validWindows.length > 0, warn: !windowsReady } as WizardStep & { hint: string }] : []),
     { id: 'studios', title: 'Studios', hint: 'Where guests can go', done: studios.length > 0 },
-    ...(isKids || isSlotForm ? [] : [{ id: 'formats', title: 'Class formats', hint: 'Shapes the copy, images and class list', done: effectiveFormats.length > 0, optional: true } as WizardStep & { hint: string }]),
+    ...(isKids || isSlotForm || isWindowForm ? [] : [{ id: 'formats', title: 'Class formats', hint: 'Shapes the copy, images and class list', done: effectiveFormats.length > 0, optional: true } as WizardStep & { hint: string }]),
     // Slot forms never touch Momence classes.
-    ...(isSlotForm ? [] : [{ id: 'booking', title: 'Class booking', hint: 'Optional · guests pick a class after they sign up', done: Boolean(sessionId), optional: true } as WizardStep & { hint: string }]),
+    ...(isSlotForm || isWindowForm ? [] : [{ id: 'booking', title: 'Class booking', hint: 'Optional · guests pick a class after they sign up', done: Boolean(sessionId), optional: true } as WizardStep & { hint: string }]),
     { id: 'fields', title: 'Extra questions', hint: 'Add your own fields on top of the standard ones', done: customFields.length > 0, optional: true },
     { id: 'hero', title: 'Hero image', hint: 'The image that leads the form', done: Boolean(heroImage), optional: true },
     { id: 'tracking', title: 'Limits & tracking', hint: 'Sign-up cap and UTM tags', done: Boolean(submissionLimit || utmTouched), optional: true },
@@ -204,6 +213,8 @@ export default function LandingPage() {
     if (id === 'campaign' && !influencer.trim() && !eventTitle.trim()) return 'Enter a partner name or an event title to continue.';
     if (id === 'studios' && !studios.length) return 'Choose at least one studio.';
     if (id === 'slots' && !slotsReady) return 'Add at least one time slot.';
+    if (id === 'windows' && !validWindows.length) return 'Add at least one time window.';
+    if (id === 'windows' && !(Number(windowFullPrice) > 0)) return 'Enter the full price of a class.';
     return '';
   };
   const blocker = stepBlocker(step.id);
@@ -224,7 +235,7 @@ export default function LandingPage() {
     setDescribing(true);
     try {
       const draft = await describeForm({ description: text });
-      if (draft.signupType && ['free', 'paid', 'kids', 'slots'].includes(draft.signupType)) {
+      if (draft.signupType && ['free', 'paid', 'kids', 'slots', 'windows'].includes(draft.signupType)) {
         chooseSignupType(draft.signupType as SignupType);
       }
       if (draft.title && !eventTitle.trim()) setEventTitle(draft.title);
@@ -247,7 +258,7 @@ export default function LandingPage() {
   const chooseSignupType = (next: SignupType) => {
     setSignupType(next);
     setSlotBooking((current) => ({ ...current, enabled: next === 'slots' }));
-    if (next === 'slots') {
+    if (next === 'slots' || next === 'windows') {
       setSelectedKey('');
       setFormats([]);
     }
@@ -265,11 +276,15 @@ export default function LandingPage() {
     setLoading(true);
     try {
       const prompt = [influencer.trim() && `Influencer/Partner: ${influencer.trim()}`, eventTitle.trim() && `Event: ${eventTitle.trim()}`].filter(Boolean).join(' | ');
+      if (!windowsReady) {
+        toast.error('A Class Windows form needs at least one time window and a class price.');
+        return;
+      }
       if (!slotsReady) {
         toast.error('A Slot Bookings form needs at least one time slot.');
         return;
       }
-      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId, sessionStudio: sessionId ? sessionStudio : '', classFormats: effectiveFormats, submissionLimit: Number(submissionLimit) || 0, eventDate, eventTime, eventVenue: eventVenue.trim(), heroImage, customFields, utmSource: effectiveUtm.source, utmChannel: effectiveUtm.channel, utmCampaign: effectiveUtm.campaign, slotBooking: signupType === 'slots' ? slotBooking : undefined });
+      const { form } = await generateForm({ prompt, creatorEmail: '', signupType, targetStudios: studios, sessionId, sessionStudio: sessionId ? sessionStudio : '', classFormats: effectiveFormats, submissionLimit: Number(submissionLimit) || 0, eventDate, eventTime, eventVenue: eventVenue.trim(), heroImage, customFields, utmSource: effectiveUtm.source, utmChannel: effectiveUtm.channel, utmCampaign: effectiveUtm.campaign, slotBooking: signupType === 'slots' ? slotBooking : undefined, ...(signupType === 'windows' ? { classWindows: validWindows, windowFullPrice: Number(windowFullPrice) } : {}) });
       // Slots live in their own table, so they are written once the form exists.
       if (slotDrafts.length && signupType === 'slots') {
         try {
@@ -369,7 +384,7 @@ export default function LandingPage() {
                     )}
                 {step.id === 'type' && (
                   <>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" role="radiogroup" aria-label="Signup flow">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3" role="radiogroup" aria-label="Signup flow">
                       {SIGNUP_FLOWS.map((option) => (
                         <OptionTile key={option.value} group="flow" selected={signupType === option.value} onSelect={() => chooseSignupType(option.value)}>
                           <option.icon className="w-4 h-4 mb-3" style={{ color: signupType === option.value ? 'hsl(var(--primary))' : undefined }} />
@@ -548,6 +563,10 @@ export default function LandingPage() {
                       fieldClass={fieldClass} labelClass={labelClass} defaultDate={eventDate} alwaysOn={isSlotForm} />
                   </>
                 )}
+                {step.id === 'windows' && (
+                  <ClassWindowsEditor windows={classWindows} onChange={setClassWindows} fullPrice={windowFullPrice} onFullPriceChange={setWindowFullPrice}
+                    fieldClass={fieldClass} labelClass={labelClass} defaultDate={eventDate} />
+                )}
                 {step.id === 'fields' && (
                   <div className="space-y-3">
                     {customFields.length === 0 && (
@@ -641,12 +660,14 @@ export default function LandingPage() {
                           <SummaryItem label="Form type" value={flow.label} />
                           <SummaryItem label="City" value={cities.join(' + ') || '—'} />
                           <SummaryItem label="Studios" value={studioSummary} span />
-                          {!isSlotForm && <SummaryItem label="Formats" value={effectiveFormats.join(', ') || 'Any'} span />}
+                          {isWindowForm && <SummaryItem label="Windows" value={`${validWindows.length} window${validWindows.length === 1 ? '' : 's'}`} />}
+                          {isWindowForm && <SummaryItem label="Pricing" value={`Free → ₹${Math.round(Number(windowFullPrice) / 2) || 0} → ₹${Number(windowFullPrice) || 0}`} />}
+                          {!isSlotForm && !isWindowForm && <SummaryItem label="Formats" value={effectiveFormats.join(', ') || 'Any'} span />}
                           <SummaryItem label="When" value={eventDate ? new Date(`${eventDate}T${eventTime || '00:00'}`).toLocaleString('en-IN', { day: 'numeric', month: 'short', ...(eventTime ? { hour: 'numeric', minute: '2-digit' } : {}) }) : '—'} />
                           <SummaryItem label="Limit" value={submissionLimit ? `${submissionLimit} sign-ups` : 'Unlimited'} />
                           <SummaryItem label="Hero" value={heroImage ? 'Chosen' : 'Auto'} />
                           {isSlotForm && <SummaryItem label="Slots" value={`${slotDrafts.length} · ${slotDrafts.reduce((sum, slot) => sum + (Number(slot.capacity) || 0), 0)} spots`} />}
-                          {!isSlotForm && <SummaryItem label="Class" value={selectedSession ? `${sessionDay(selectedSession)} ${sessionTime(selectedSession)}` : sessionId || 'None'} span />}
+                          {!isSlotForm && !isWindowForm && <SummaryItem label="Class" value={selectedSession ? `${sessionDay(selectedSession)} ${sessionTime(selectedSession)}` : sessionId || 'None'} span />}
                         </dl>
 
                         <div className="rounded-xl neu-inset p-3">

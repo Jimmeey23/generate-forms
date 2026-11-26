@@ -86,7 +86,7 @@ export default function FormExtras({ studios, classFormats, signupType }: { stud
 
       <PhotoMarquee />
 
-      {signupType !== 'kids' && signupType !== 'slots' && (
+      {signupType !== 'kids' && signupType !== 'slots' && signupType !== 'windows' && (
         <Section index={next()} eyebrow="Class Formats" title={<>Find your <Accent>format</Accent>.</>}
           lede={formats.length === 1 ? `This experience is built around ${formats[0]}.` : 'Every format carries the same Physique 57 method, tuned for a different kind of challenge.'}>
           <motion.div {...inView} variants={stagger} className="space-y-4">

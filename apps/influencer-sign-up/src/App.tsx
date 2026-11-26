@@ -9,6 +9,7 @@ import SuccessPage from './pages/SuccessPage';
 import PaymentConfirmation from './pages/PaymentConfirmation';
 import ClassSchedule from './pages/ClassSchedule';
 import KidsHostedSignup from './pages/KidsHostedSignup';
+import ClassWindows from './pages/ClassWindows';
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
         <Route path="/payment-confirmation" element={<PaymentConfirmation />} />
         <Route path="/classes/:memberId" element={<ClassSchedule />} />
         <Route path="/kids-hosted" element={<KidsHostedSignup />} />
+        <Route path="/windows/:submissionId" element={<ClassWindows />} />
       </Routes>
     </BrowserRouter>
   );

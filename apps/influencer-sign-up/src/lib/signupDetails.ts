@@ -1,7 +1,7 @@
 import type { MomenceSession } from './api';
 
 export type SignupDetails = {
-  firstName: string; center: string; classType: string; signupType: 'kids' | 'free' | 'paid' | 'slots';
+  firstName: string; center: string; classType: string; signupType: 'kids' | 'free' | 'paid' | 'slots' | 'windows';
   formTitle: string; childName?: string; session?: Pick<MomenceSession, 'name' | 'startsAt' | 'endsAt' | 'teacherName' | 'locationName' | 'durationInMinutes'> | null;
   booked?: boolean; paid?: boolean;
 };

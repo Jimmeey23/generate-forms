@@ -232,6 +232,50 @@ async function bookHosted(memberId, sessionId, config) {
     await momence('/host/checkout', { method: 'POST', body: JSON.stringify({ memberId, homeLocationId: config.homeLocationId, items: [{ id: '1', type: 'session', sessionId: Number(sessionId), quantity: 1, attemptedPriceInCurrency: '0' }], paymentMethods: [{ id: '1', type: 'free' }] }) }, config.account);
   }
 }
+// Every class at a studio, any format, public or hosted, up to `end`. Used by Class Windows forms,
+// which offer whatever is scheduled inside their time windows.
+export async function listAllSessions(center, end) {
+  const config = locationConfig(center);
+  const [scheduled, hostedRows] = await Promise.all([
+    fetchSessions(config, center, end, false),
+    fetchSessions(config, center, end, true).catch((error) => { console.warn(`Hosted session lookup failed for ${center}:`, error?.message || error); return []; }),
+  ]);
+  const hostedIds = new Set(hostedRows.map((session) => session.id));
+  const excluded = ['studio juniors'];
+  const open = scheduled
+    .filter((session) => !session.isCancelled && !hostedIds.has(session.id) && !excluded.some((term) => String(session.name || '').toLowerCase().includes(term)))
+    .map((session) => normalizeSession(session, center, false));
+  const hosted = hostedRows.filter((session) => !session.isCancelled).map((session) => normalizeSession(session, center, true));
+  return [...open, ...hosted].sort((a, b) => String(a.startsAt).localeCompare(String(b.startsAt)));
+}
+// Free seat in any class, for a Class Windows guest's first booking.
+export async function bookFreeSession(memberId, sessionId, center) {
+  await bookHosted(Number(memberId), Number(sessionId), locationConfig(center));
+}
+// Records a class bought through Stripe: Momence takes the session at the price paid (ex. GST,
+// matching how intro memberships are recorded) against the studio's custom Stripe payment method.
+export async function bookPaidSession(memberId, sessionId, center, amountInr) {
+  const config = locationConfig(center);
+  const body = { memberId: Number(memberId), homeLocationId: config.homeLocationId, items: [{ id: '1', type: 'session', sessionId: Number(sessionId), quantity: 1, attemptedPriceInCurrency: String(Math.round(Number(amountInr) / 1.05)) }], paymentMethods: [{ id: '1', type: 'custom', customPaymentMethodId: PAYMENT_METHODS[config.account], note: 'Paid via Stripe Checkout (Class Windows)' }] };
+  return momence('/host/checkout', { method: 'POST', body: JSON.stringify(body) }, config.account);
+}
+export async function saveProfileFields(memberId, values, classType) {
+  validateCustomerFields(values || {}, /cycle|spin/i.test(classType || ''));
+  await saveCustomerFields(Number(memberId), values || {});
+}
+// Stripe Checkout for one Class Windows class. Fulfilment is handled by the server, which owns the
+// booking record, so the metadata only points back at it.
+export async function createClassCheckout({ windowBookingId, memberId, sessionId, center, amountInr, label, successOrigin, cancelUrl }) {
+  const config = locationConfig(center);
+  const metadata = { kind: 'window', windowBookingId: String(windowBookingId), memberId: String(memberId), sessionId: String(sessionId), homeLocationId: String(config.id) };
+  const checkout = await stripe().checkout.sessions.create({
+    mode: 'payment', client_reference_id: `${memberId}:${sessionId}`,
+    success_url: `${successOrigin}/payment-confirmation?checkout_session_id={CHECKOUT_SESSION_ID}`, cancel_url: cancelUrl,
+    metadata, payment_intent_data: { metadata },
+    line_items: [{ quantity: 1, price_data: { currency: 'inr', unit_amount: Math.round(Number(amountInr) * 100), product_data: { name: label, description: 'Physique 57 India class booking.' } } }],
+  });
+  return { id: checkout.id, url: checkout.url };
+}
 function validateCustomerFields(values, requiresShoeSize) {
   const requiredFields = ['emergencyContactInfo', 'medicalHistory'];
   if (values.gender === 'Female') requiredFields.push('pregnancyStatus', 'postNatalStatus');
@@ -362,6 +406,8 @@ export async function selectClassAndContinue({ memberId, sessionId, center, clas
 }
 export async function fulfillCheckout(checkoutSessionId) {
   const checkout = await stripe().checkout.sessions.retrieve(checkoutSessionId); if (checkout.payment_status !== 'paid' && checkout.status !== 'complete') throw new Error('Stripe Checkout session is not paid yet.');
+  // Class Windows checkouts are fulfilled by the server against its own booking record.
+  if (checkout.metadata?.kind === 'window') return { kind: 'window', windowBookingId: checkout.metadata.windowBookingId, memberId: Number(checkout.metadata.memberId), sessionId: Number(checkout.metadata.sessionId), checkoutId: checkout.id };
   const { memberId, sessionId, homeLocationId, membershipId, formId } = checkout.metadata || {}; const config = Object.values(LOCATIONS).find((value) => value.id === Number(homeLocationId));
   if (!config || !memberId || !sessionId || !membershipId) throw new Error('Stripe Checkout metadata is incomplete.');
   const full = { ...config, id: Number(homeLocationId), hostId: HOSTS[config.account], homeLocationId: config.homeLocationId || config.id };
@@ -372,8 +418,8 @@ export async function fulfillCheckout(checkoutSessionId) {
 export async function handleStripeWebhook(rawBody, signature) {
   const event = stripe().webhooks.constructEvent(rawBody, signature, required('STRIPE_WEBHOOK_SECRET'));
   if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
-    await fulfillCheckout(event.data.object.id);
-    return { received: true, fulfilled: true };
+    const booking = await fulfillCheckout(event.data.object.id);
+    return { received: true, fulfilled: true, booking };
   }
   return { received: true, fulfilled: false };
 }

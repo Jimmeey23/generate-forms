@@ -1,6 +1,8 @@
 import type { Attribution } from './attribution';
 
-export type SignupType = 'kids' | 'free' | 'paid' | 'slots';
+export type SignupType = 'kids' | 'free' | 'paid' | 'slots' | 'windows';
+// A Class Windows time range, IST wall-clock: every class starting inside it is offered.
+export type ClassWindow = { date: string; startTime: string; endTime: string };
 
 export type FormRecord = {
   id: string; title: string; description: string; slug: string; fields: any[]; themeColor: string; layout: string;
@@ -15,6 +17,7 @@ export type FormRecord = {
   targetStudios: string[]; classFormats: string[]; sessionStudio: string; eventDate: string; eventTime: string; eventVenue: string;
   sheetUrl: string; submissionLimit: number;
   slotBooking: SlotBooking;
+  classWindows: ClassWindow[]; windowFullPrice: number;
 };
 
 // Time-slot sign-ups: off unless a form explicitly switches them on.
@@ -43,7 +46,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return response.json();
 }
 
-export const generateForm = (input: { prompt: string; creatorEmail?: string; signupType: SignupType; targetStudios: string[]; sessionId?: string; sessionStudio?: string; classFormats?: string[]; submissionLimit?: number; eventDate?: string; eventTime?: string; eventVenue?: string; heroImage?: string; customFields?: any[]; utmSource?: string; utmChannel?: string; utmCampaign?: string; slotBooking?: SlotBooking }) => request<{ form: FormRecord }>('/api/generate-form', { method: 'POST', body: JSON.stringify(input) });
+export const generateForm = (input: { prompt: string; creatorEmail?: string; signupType: SignupType; targetStudios: string[]; sessionId?: string; sessionStudio?: string; classFormats?: string[]; submissionLimit?: number; eventDate?: string; eventTime?: string; eventVenue?: string; heroImage?: string; customFields?: any[]; utmSource?: string; utmChannel?: string; utmCampaign?: string; slotBooking?: SlotBooking; classWindows?: ClassWindow[]; windowFullPrice?: number }) => request<{ form: FormRecord }>('/api/generate-form', { method: 'POST', body: JSON.stringify(input) });
 export const getForms = (input: { creatorEmail?: string }) => request<GetFormsOutputType>(`/api/forms${input.creatorEmail ? `?creatorEmail=${encodeURIComponent(input.creatorEmail)}` : ''}`);
 export const getForm = (input: { id?: string; slug?: string }) => request<GetFormOutputType>(`/api/forms/${encodeURIComponent(input.id || input.slug || '')}${input.slug ? '?by=slug' : ''}`);
 export const updateForm = (input: { id: string; [key: string]: any }) => {
@@ -70,3 +73,9 @@ export const getHostedSessions = (input: { center: string }) => request<{ sessio
 export type KidsHostedChild = { name: string; dateOfBirth: string };
 export type KidsHostedResult = { parentMemberId: number; sessionId: number; allBooked: boolean; children: { name: string; memberId?: number; booked: boolean; error?: string }[] };
 export const signupKidsHosted = (input: { center: string; sessionId: number; firstName: string; lastName: string; email: string; phone: string; children: KidsHostedChild[]; signatureRealSignature: string; waiverAccepted: boolean }) => request<KidsHostedResult>('/api/momence/kids-hosted-signup', { method: 'POST', body: JSON.stringify(input) });
+
+export type ClassWindowsInfo = { formTitle: string; center: string; windows: ClassWindow[]; sessions: MomenceSession[]; priorBookings: number; tier: 0 | 1 | 2; tierLabel: string; fullPrice: number; amountInr: number };
+export const getClassWindows = (submissionId: string) => request<ClassWindowsInfo>(`/api/class-windows/${encodeURIComponent(submissionId)}`);
+export const bookClassWindow = (input: { submissionId: string; sessionId: number; customerFields: Record<string, string> }) =>
+  request<{ booked: boolean; checkoutUrl: string | null; tier: number; amountInr: number }>(`/api/class-windows/${encodeURIComponent(input.submissionId)}/book`, { method: 'POST', body: JSON.stringify({ sessionId: input.sessionId, customerFields: input.customerFields }) });
+export const cancelPendingClassWindow = (submissionId: string) => request<{ success: boolean }>(`/api/class-windows/${encodeURIComponent(submissionId)}/cancel-pending`, { method: 'POST' });

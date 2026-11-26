@@ -11,7 +11,7 @@ Return ONLY JSON matching:
 {
   "title": string,
   "description": string,
-  "signupType": "free" | "paid" | "kids" | "slots",
+  "signupType": "free" | "paid" | "kids" | "slots" | "windows",
   "fields": [{
     "label": string,
     "type": one of ${FIELD_TYPES.join(' | ')},
@@ -31,6 +31,7 @@ Rules:
 - Use "datetime" for a specific date AND time, "date" for a day only.
 - Use "readonly" for instructions or notices that need no answer; put the copy in helperText.
 - Choose "slots" as signupType only if the description is about booking time slots.
+- Choose "windows" if guests pick any class within given time windows (first class free, then discounted).
 - Keep labels short and in sentence case. Prefer gridCol "half" for short answers.`;
 
 // Shape whatever came back into something the form builder can trust.
@@ -70,7 +71,7 @@ async function viaOpenAi(description) {
   return {
     title: String(parsed.title || '').slice(0, 200),
     description: String(parsed.description || '').slice(0, 600),
-    signupType: ['free', 'paid', 'kids', 'slots'].includes(parsed.signupType) ? parsed.signupType : '',
+    signupType: ['free', 'paid', 'kids', 'slots', 'windows'].includes(parsed.signupType) ? parsed.signupType : '',
     fields: sanitizeFields(parsed.fields),
     engine: 'openai',
   };

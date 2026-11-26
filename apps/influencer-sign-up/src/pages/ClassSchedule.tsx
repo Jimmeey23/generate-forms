@@ -8,7 +8,7 @@ import { BRAND_LOGO_DARK } from '@/lib/constants';
 import { getMomenceSessions, selectMomenceClass, type MomenceSession } from '@/lib/api';
 import { updateSignupDetails } from '@/lib/signupDetails';
 
-const EMPTY_FIELDS = { fitnessGoal: '', emergencyContactInfo: '', pregnancyStatus: '', medicalHistory: '', postNatalStatus: '', gender: '', euShoeSize: '', howDidHear: '' };
+export const EMPTY_FIELDS = { fitnessGoal: '', emergencyContactInfo: '', pregnancyStatus: '', medicalHistory: '', postNatalStatus: '', gender: '', euShoeSize: '', howDidHear: '' };
 const IST = { timeZone: 'Asia/Kolkata' } as const;
 
 const dayLabel = (startsAt: string) => new Date(startsAt).toLocaleDateString('en-IN', { ...IST, weekday: 'long', day: 'numeric', month: 'long' });
@@ -206,7 +206,7 @@ export default function ClassSchedule() {
   );
 }
 
-function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
+export function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
   return (
     <div>
       <Label className="mb-2 block text-xs uppercase tracking-wider">{label}</Label>
@@ -215,7 +215,7 @@ function Field({ label, value, onChange, placeholder }: { label: string; value: 
   );
 }
 
-function SelectField({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
+export function SelectField({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
   return (
     <div>
       <Label className="mb-2 block text-xs uppercase tracking-wider">{label}</Label>

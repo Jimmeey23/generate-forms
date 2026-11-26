@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
-import { ageOn, KIDS_HOSTED_MAX_AGE, KIDS_HOSTED_MIN_AGE, fulfillCheckout, handleStripeWebhook, listHostedSessions, listSessions, selectClassAndContinue, signupAdult, signupKid, signupKidsHosted } from './momence.mjs';
+import { ageOn, KIDS_HOSTED_MAX_AGE, KIDS_HOSTED_MIN_AGE, bookFreeSession, bookPaidSession, createClassCheckout, fulfillCheckout, handleStripeWebhook, listAllSessions, listHostedSessions, listSessions, saveProfileFields, selectClassAndContinue, signupAdult, signupKid, signupKidsHosted } from './momence.mjs';
 import { appendSubmissionRow, createFormSheet, sheetsConfigured } from './sheets.mjs';
 import { describeToForm, openAiConfigured } from './textToForm.mjs';
 import { HERO_IMAGES, FORMAT_HERO_INDEXES, KIDS_HERO_INDEXES } from '../shared/heroImages.mjs';
@@ -31,7 +31,9 @@ const app = express();
 app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), asyncRoute(async (req, res) => {
   const signature = req.get('stripe-signature');
   if (!signature) return res.status(400).json({ error: 'Missing Stripe signature header.' });
-  res.json(await handleStripeWebhook(req.body, signature));
+  const result = await handleStripeWebhook(req.body, signature);
+  if (result.booking?.kind === 'window') await fulfillWindowBooking(result.booking);
+  res.json({ received: result.received, fulfilled: result.fulfilled });
 }));
 app.use(express.json({ limit: '1mb' }));
 
@@ -98,6 +100,8 @@ function fieldsForSignupType(signupType, studios, classFormats = [], extraFields
   const common = [...adult.slice(0, 4), studioField];
   // Slot bookings take contact details and a slot. No class, no waiver, no signature.
   if (signupType === 'slots') return [...common, ...extraFields, TEMPLATE_FIELDS.find((field) => field.id === 'terms')];
+  // Class Windows: the guest picks a class after signing up, from any format, so no class field.
+  if (signupType === 'windows') return [...common, ...extraFields, ...SIGNATURE_FIELDS];
   if (signupType === 'kids') return [
     ...common,
     { id: 'childName', type: 'text', label: "Child's full name", required: true, gridCol: 'full' },
@@ -182,6 +186,24 @@ function normalizeSlotBooking(raw) {
   };
 }
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+// Class Windows: date + start/end (IST wall-clock). Invalid or inverted rows are dropped.
+function normalizeClassWindows(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set();
+  return raw.slice(0, 50).map((row) => ({
+    date: String(row?.date || '').trim(), startTime: String(row?.startTime || '').trim().slice(0, 5), endTime: String(row?.endTime || '').trim().slice(0, 5),
+  })).filter((row) => {
+    const key = `${row.date} ${row.startTime} ${row.endTime}`;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(row.date) || !HHMM.test(row.startTime) || !HHMM.test(row.endTime) || row.endTime <= row.startTime || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).sort((a, b) => `${a.date} ${a.startTime}`.localeCompare(`${b.date} ${b.startTime}`));
+}
+const normalizeFullPrice = (value) => Math.max(0, Math.min(100000, Math.round(Number(value) || 0)));
+const windowRange = (row) => [Date.parse(`${row.date}T${row.startTime}:00+05:30`), Date.parse(`${row.date}T${row.endTime}:00+05:30`)];
+// First class free, second half price, full price from then on.
+const WINDOW_TIERS = [{ tier: 0, factor: 0, label: 'Free' }, { tier: 1, factor: 0.5, label: '50% off' }, { tier: 2, factor: 1, label: 'Full price' }];
+const tierFor = (priorBookings) => WINDOW_TIERS[Math.min(priorBookings, 2)];
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 // Times come back from Postgres as HH:MM:SS; the UI works in HH:MM.
 const trimTime = (value) => String(value || '').slice(0, 5);
@@ -240,6 +262,7 @@ function publicForm(record, req) {
     eventDate: data.eventDate || '', eventTime: data.eventTime || '', eventVenue: data.eventVenue || '',
     submissionLimit: Number(data.submissionLimit) || 0,
     slotBooking: normalizeSlotBooking(data.slotBooking),
+    classWindows: normalizeClassWindows(data.classWindows), windowFullPrice: normalizeFullPrice(data.windowFullPrice),
     sheetUrl: data.sheetUrl || '',
   };
 }
@@ -280,7 +303,11 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const influencerName = extractPromptValue(prompt, 'Influencer/Partner');
   const eventName = extractPromptValue(prompt, 'Event');
   const details = extractPromptValue(prompt, 'Details');
-  const signupType = ['kids', 'free', 'paid', 'slots'].includes(req.body.signupType) ? req.body.signupType : 'free';
+  const signupType = ['kids', 'free', 'paid', 'slots', 'windows'].includes(req.body.signupType) ? req.body.signupType : 'free';
+  const classWindows = signupType === 'windows' ? normalizeClassWindows(req.body.classWindows) : [];
+  const windowFullPrice = signupType === 'windows' ? normalizeFullPrice(req.body.windowFullPrice) : 0;
+  if (signupType === 'windows' && !classWindows.length) return res.status(400).json({ error: 'Add at least one valid time window.' });
+  if (signupType === 'windows' && !windowFullPrice) return res.status(400).json({ error: 'Enter the full price of a class.' });
   const requestedStudios = Array.isArray(req.body.targetStudios) ? req.body.targetStudios : [req.body.targetStudio || FALLBACK_CENTER];
   const targetStudios = SUPPORTED_STUDIOS.filter((studio) => requestedStudios.map((value) => String(value).trim()).includes(studio));
   if (!targetStudios.length) return res.status(400).json({ error: 'Choose at least one supported studio.' });
@@ -295,7 +322,7 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const offeredFormats = [...new Set(targetStudios.flatMap(getClassOptions))];
   const unavailable = requestedFormats.find((format) => !CLASS_FORMATS.includes(format) || !offeredFormats.includes(format));
   if (unavailable) return res.status(400).json({ error: `${unavailable} is not offered at the selected studios.` });
-  const classFormats = signupType === 'kids' || signupType === 'slots' ? [] : CLASS_FORMATS.filter((format) => requestedFormats.includes(format));
+  const classFormats = ['kids', 'slots', 'windows'].includes(signupType) ? [] : CLASS_FORMATS.filter((format) => requestedFormats.includes(format));
   const classFormat = classFormats.length === 1 ? classFormats[0] : '';
   const submissionLimit = Math.max(0, Math.min(100000, Math.floor(Number(req.body.submissionLimit) || 0)));
   const eventDate = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.eventDate || '')) ? req.body.eventDate : '';
@@ -329,7 +356,7 @@ app.post('/api/generate-form', asyncRoute(async (req, res) => {
   const slotBooking = normalizeSlotBooking(req.body.slotBooking);
   // The Slot Bookings type is defined by its schedule, so the toggle is implicit.
   if (signupType === 'slots') slotBooking.enabled = true;
-  const formData = { fields: fieldsForSignupType(signupType, targetStudios, classFormats, customFields(req.body.customFields)), signupType, targetStudio, targetStudios, sessionId, sessionStudio, classFormat, classFormats, submissionLimit, slotBooking, eventDate, eventTime, eventVenue, layout: 'stacked', heroImage, heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor, formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: utmOr(req.body.utmSource, hostSlug || eventSlug || 'general'), utmChannel: utmOr(req.body.utmChannel, eventSlug || hostSlug || 'general'), utmCampaign: utmOr(req.body.utmCampaign, eventSlug || hostSlug || 'general'), hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
+  const formData = { fields: fieldsForSignupType(signupType, targetStudios, classFormats, customFields(req.body.customFields)), signupType, targetStudio, targetStudios, sessionId: signupType === 'windows' ? '' : sessionId, sessionStudio, classFormat, classFormats, submissionLimit, slotBooking, classWindows, windowFullPrice, eventDate, eventTime, eventVenue, layout: 'stacked', heroImage, heroPosition: 'center', heroPositionX: 35 + ((seed >>> 8) % 31), heroPositionY: 35 + ((seed >>> 13) % 31), heroScale: 1 + ((seed >>> 18) % 16) / 100, heroHeight: 520, heroWidth: 48, accentColor, formWidth: 480, formMinHeight: 0, formBorderRadius: 16, formPadding: 40, boldLabels: false, logoUrl: BRAND_LOGO, logoPosition: 'left', logoSize: 'lg', logoInvert: false, influencerName, eventName, metadataTitle: title, metadataDescription, utmSource: utmOr(req.body.utmSource, hostSlug || eventSlug || 'general'), utmChannel: utmOr(req.body.utmChannel, eventSlug || hostSlug || 'general'), utmCampaign: utmOr(req.body.utmCampaign, eventSlug || hostSlug || 'general'), hashtag: (eventName || influencerName || campaignName).replace(/[^a-z0-9]/gi, ''), hashtagSize: 'sm', hashtagStyle: 'neon', hashtagPosition: 'left' };
   const slug = await createUniqueSlug(eventName || influencerName || campaignName);
   const { data, error } = await supabase.from('forms').insert({ title, description, slug, form_data: formData, theme_color: 'midnight', status: 'Draft', creator_email: req.body.creatorEmail || '' }).select().single();
   if (error) throw error;
@@ -362,6 +389,8 @@ app.patch('/api/forms/:id', asyncRoute(async (req, res) => {
   let changed = false;
   for (const key of dataKeys) if (req.body[key] !== undefined) { formData[key] = req.body[key]; changed = true; }
   if (req.body.slotBooking !== undefined) { formData.slotBooking = normalizeSlotBooking(req.body.slotBooking); changed = true; }
+  if (req.body.classWindows !== undefined) { formData.classWindows = normalizeClassWindows(req.body.classWindows); changed = true; }
+  if (req.body.windowFullPrice !== undefined) { formData.windowFullPrice = normalizeFullPrice(req.body.windowFullPrice); changed = true; }
   if (req.body.submissionLimit !== undefined) { formData.submissionLimit = Math.max(0, Math.min(100000, Math.floor(Number(req.body.submissionLimit) || 0))); changed = true; }
   if (changed) update.form_data = formData;
   const { error } = await supabase.from('forms').update(update).eq('id', req.params.id);
@@ -532,7 +561,9 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
     if ((count || 0) >= submissionLimit) return res.status(409).json({ error: 'This form has reached its sign-up limit and is no longer accepting responses.', limitReached: true });
   }
   const slotConfig = normalizeSlotBooking(formData.slotBooking);
-  if (!(isSlotBooking && slotConfig.allowDuplicateEmail) && await isDuplicateSubmission(req.params.id, email, phone)) {
+  const isClassWindows = formData.signupType === 'windows';
+  // Class Windows guests come back for later classes (at the next price tier), so repeats are expected.
+  if (!isClassWindows && !(isSlotBooking && slotConfig.allowDuplicateEmail) && await isDuplicateSubmission(req.params.id, email, phone)) {
     return res.status(409).json({ error: 'You have already signed up for this form with this email or phone number.', duplicate: true });
   }
 
@@ -612,6 +643,11 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
   try {
     if (isSlotBooking) signup = null;
     else signup = operationalForm.signupType === 'kids' ? await signupKid(responses, operationalForm) : await signupAdult(responses, operationalForm);
+    // Class Windows bookings are priced from this submission, so the member is pinned to it server side.
+    if (isClassWindows && signup?.memberId) {
+      const { error: pinError } = await supabase.from('form_submissions').update({ response_data: { ...responses, _momenceMemberId: Number(signup.memberId) } }).eq('id', submission.id);
+      if (pinError) throw pinError;
+    }
     // Checkout is created on the class step, once the guest's required profile fields are saved.
   } catch (error) {
     signupError = error;
@@ -633,7 +669,9 @@ app.post('/api/forms/:id/submissions', asyncRoute(async (req, res) => {
 app.get('/api/payments/confirm', asyncRoute(async (req, res) => {
   const checkoutSessionId = String(req.query.checkout_session_id || '').trim();
   if (!checkoutSessionId) return res.status(400).json({ error: 'checkout_session_id is required' });
-  res.json({ success: true, booking: await fulfillCheckout(checkoutSessionId) });
+  const booking = await fulfillCheckout(checkoutSessionId);
+  if (booking?.kind === 'window') await fulfillWindowBooking(booking);
+  res.json({ success: true, booking });
 }));
 
 app.get('/api/momence/sessions', asyncRoute(async (req, res) => {
@@ -658,6 +696,111 @@ app.post('/api/momence/kids-hosted-signup', asyncRoute(async (req, res) => {
     res.status(400).json({ error: error?.message || 'Sign-up failed' });
   }
 }));
+
+// ── Class Windows ──
+async function priorWindowBookings(email, phone) {
+  const counts = await Promise.all([
+    email ? supabase.from('class_window_bookings').select('id', { count: 'exact', head: true }).eq('status', 'booked').ilike('email', email.replace(/[\\%_]/g, '\\$&')) : { count: 0 },
+    phone ? supabase.from('class_window_bookings').select('id', { count: 'exact', head: true }).eq('status', 'booked').eq('phone', phone) : { count: 0 },
+  ]);
+  for (const result of counts) if (result.error) throw result.error;
+  // Email and phone usually point at the same rows; the larger count is the safer one.
+  return Math.max(counts[0].count || 0, counts[1].count || 0);
+}
+async function loadWindowContext(submissionId) {
+  const { data: submission, error } = await supabase.from('form_submissions').select('*').eq('id', submissionId).maybeSingle();
+  if (error) throw error;
+  if (!submission) throw Object.assign(new Error('This sign-up could not be found.'), { status: 404 });
+  const { data: form, error: formError } = await supabase.from('forms').select('*').eq('id', submission.form_id).single();
+  if (formError) throw formError;
+  const formData = form.form_data || {};
+  if (formData.signupType !== 'windows') throw Object.assign(new Error('This sign-up is not for a Class Windows form.'), { status: 400 });
+  const memberId = Number(submission.response_data?._momenceMemberId);
+  if (!memberId) throw Object.assign(new Error('Your studio profile is not ready yet. Please contact the studio.'), { status: 409 });
+  const center = formData.targetStudio || submission.center;
+  const windows = normalizeClassWindows(formData.classWindows);
+  const fullPrice = normalizeFullPrice(formData.windowFullPrice);
+  return { submission, form, center, windows, fullPrice, memberId, email: submission.submitter_email || '', phone: submission.phone || '' };
+}
+async function sessionsInWindows(center, windows) {
+  const now = Date.now();
+  const ranges = windows.map(windowRange).filter(([, end]) => end > now);
+  if (!ranges.length) return [];
+  const until = new Date(Math.min(Math.max(...ranges.map(([, end]) => end)), now + 120 * 86400000));
+  const sessions = await listAllSessions(center, until);
+  return sessions.filter((session) => {
+    const startsAt = Date.parse(session.startsAt);
+    return startsAt > now && ranges.some(([start, end]) => startsAt >= start && startsAt < end);
+  });
+}
+const windowRoute = (handler) => asyncRoute(async (req, res) => {
+  try { await handler(req, res); }
+  catch (error) { if (error?.status) return res.status(error.status).json({ error: error.message }); throw error; }
+});
+app.get('/api/class-windows/:submissionId', windowRoute(async (req, res) => {
+  const ctx = await loadWindowContext(req.params.submissionId);
+  const [sessions, prior] = await Promise.all([sessionsInWindows(ctx.center, ctx.windows), priorWindowBookings(ctx.email, ctx.phone)]);
+  const tier = tierFor(prior);
+  res.json({ formTitle: ctx.form.title, center: ctx.center, windows: ctx.windows, sessions, priorBookings: prior, tier: tier.tier, tierLabel: tier.label, fullPrice: ctx.fullPrice, amountInr: Math.round(ctx.fullPrice * tier.factor) });
+}));
+app.post('/api/class-windows/:submissionId/book', windowRoute(async (req, res) => {
+  const ctx = await loadWindowContext(req.params.submissionId);
+  const sessionId = Number(req.body?.sessionId);
+  if (!sessionId) return res.status(400).json({ error: 'Please choose a class.' });
+  const session = (await sessionsInWindows(ctx.center, ctx.windows)).find((item) => Number(item.id) === sessionId);
+  if (!session) return res.status(400).json({ error: 'That class is not available in this form’s time windows.' });
+  if (session.spotsLeft === 0) return res.status(409).json({ error: 'That class just filled up. Please choose another.' });
+  const { count: already, error: dupError } = await supabase.from('class_window_bookings').select('id', { count: 'exact', head: true })
+    .eq('member_id', ctx.memberId).eq('session_id', sessionId).in('status', ['booked', 'pending_payment']);
+  if (dupError) throw dupError;
+  if (already) return res.status(409).json({ error: 'You already have this class booked or awaiting payment.' });
+  try { await saveProfileFields(ctx.memberId, req.body?.customerFields, session.name); }
+  catch (error) { return res.status(400).json({ error: error?.message || 'Please complete your profile.' }); }
+  // The tier is worked out here, from confirmed bookings, never from anything the browser sends.
+  const tier = tierFor(await priorWindowBookings(ctx.email, ctx.phone));
+  const amountInr = Math.round(ctx.fullPrice * tier.factor);
+  const row = { form_id: ctx.form.id, submission_id: ctx.submission.id, member_id: ctx.memberId, email: ctx.email, phone: ctx.phone, center: ctx.center, session_id: sessionId, session_name: session.name, session_starts_at: session.startsAt, price_tier: tier.tier, amount_inr: amountInr };
+  if (amountInr <= 0) {
+    await bookFreeSession(ctx.memberId, sessionId, ctx.center);
+    const { error } = await supabase.from('class_window_bookings').insert({ ...row, status: 'booked', booked_at: new Date().toISOString() });
+    if (error) console.error(`Class booked in Momence, but the booking record failed for submission ${ctx.submission.id}:`, error.message);
+    return res.json({ booked: true, checkoutUrl: null, tier: tier.tier, amountInr: 0 });
+  }
+  const { data: pending, error: insertError } = await supabase.from('class_window_bookings').insert({ ...row, status: 'pending_payment' }).select('id').single();
+  if (insertError) throw insertError;
+  const origin = (process.env.APP_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+  try {
+    const checkout = await createClassCheckout({ windowBookingId: pending.id, memberId: ctx.memberId, sessionId, center: ctx.center, amountInr, label: `${session.name} · ${tier.label}`, successOrigin: origin, cancelUrl: `${origin}/windows/${ctx.submission.id}?payment=cancelled` });
+    await supabase.from('class_window_bookings').update({ stripe_checkout_id: checkout.id }).eq('id', pending.id);
+    res.json({ booked: false, checkoutUrl: checkout.url, tier: tier.tier, amountInr });
+  } catch (error) {
+    await supabase.from('class_window_bookings').update({ status: 'failed' }).eq('id', pending.id);
+    throw error;
+  }
+}));
+// Abandoned checkouts must not block a retry of the same class.
+app.post('/api/class-windows/:submissionId/cancel-pending', windowRoute(async (req, res) => {
+  const { error } = await supabase.from('class_window_bookings').update({ status: 'failed' }).eq('submission_id', req.params.submissionId).eq('status', 'pending_payment');
+  if (error) throw error;
+  res.json({ success: true });
+}));
+// Runs from both the Stripe webhook and the confirmation page; the conditional update means only
+// one of them ever books the class in Momence.
+async function fulfillWindowBooking(booking) {
+  const { data: claimed, error } = await supabase.from('class_window_bookings').update({ status: 'booked', booked_at: new Date().toISOString() })
+    .eq('id', booking.windowBookingId).in('status', ['pending_payment', 'failed']).select('*').maybeSingle();
+  if (error) throw error;
+  if (!claimed) return booking; // already fulfilled
+  try { await bookPaidSession(claimed.member_id, claimed.session_id, claimed.center, claimed.amount_inr); }
+  catch (bookError) {
+    if (!/already/i.test(String(bookError?.message || bookError))) {
+      console.error(`Paid Class Windows booking ${claimed.id} could not be recorded in Momence:`, bookError?.message || bookError);
+      await supabase.from('class_window_bookings').update({ status: 'failed' }).eq('id', claimed.id);
+      throw new Error('Your payment went through, but the class could not be booked automatically. The studio team will confirm your spot.');
+    }
+  }
+  return booking;
+}
 
 app.post('/api/momence/select-class', asyncRoute(async (req, res) => {
   const { memberId, sessionId, center, classType, signupType, customerFields } = req.body || {};

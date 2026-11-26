@@ -85,6 +85,11 @@ export default function FormFill() {
         window.location.assign(result.checkoutUrl);
         return;
       }
+      // Class Windows guests pick any class inside the form's time windows; pricing is set server side.
+      if (form.signupType === 'windows' && result.signup?.memberId && result.submissionId) {
+        navigate(`/windows/${result.submissionId}`);
+        return;
+      }
       // Nothing is booked at submission: adults complete their profile and confirm a class next.
       if (form.signupType !== 'kids' && !booked && result.signup?.memberId) {
         const query = new URLSearchParams({ center, classType: classType || 'Barre', signupType: form.signupType });
