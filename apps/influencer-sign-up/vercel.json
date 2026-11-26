@@ -3,13 +3,41 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index" },
-    { "source": "/dashboard", "destination": "/index.html" },
-    { "source": "/form/:path*", "destination": "/index.html" },
-    { "source": "/f/:path*", "destination": "/api/index" },
-    { "source": "/success", "destination": "/index.html" },
-    { "source": "/payment-confirmation", "destination": "/index.html" },
-    { "source": "/classes/:path*", "destination": "/index.html" },
-    { "source": "/kids-hosted", "destination": "/index.html" }
+    {
+      "source": "/api/:path*",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/dashboard",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/form/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/f/:path*",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/success",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/payment-confirmation",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/classes/:path*",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/kids-hosted",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/windows/:path*",
+      "destination": "/index.html"
+    }
   ]
 }
